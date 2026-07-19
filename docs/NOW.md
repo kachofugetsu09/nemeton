@@ -66,14 +66,19 @@ Project + 原始问题
 - Codex 模型选择器通过本机已认证 Codex 客户端的 app-server `model/list` 动态读取当前可见模型、
   默认模型和逐模型思考强度；客户端协议失败会明确阻止新会议，不使用前端硬编码列表或静默 fallback。
 - 会议中间从 Human 原始输入开始展示带 `@seat` 的自然语言讨论，右侧只展示 Proposal；运行中的
-  Provider 活动和 WebSocket 连接状态留在讨论流末尾，不展示原始推理；Result Review 使用独立页面。
+  Provider 活动和 WebSocket 连接状态留在讨论流末尾，不展示原始推理；讨论中的内部 Proposal ID 显示为
+  `@seat 的提案`；Result Review 使用独立页面。
+- Provider 结构化输出在 daemon 边界最多纠正一次并规范化为 JSON 后入库；原始 NDJSON 独立保留为 evidence。
+  OpenCode stream 缺少终止 step、缺少必要 continuation 或出现非 NDJSON 行时 fail-loud。
 - 用户逐项选择长期保留、仅本方案、反对或稍后，自然语言反馈可空。
 
 ## 持续验收
 
 - `scripts/semantic-gate` 是唯一仓库硬 Gate：前端 lint/build/Playwright、Go format/vet/race tests 和 CLI/daemon build。
+- Gate 内的真实 daemon 使用系统分配的 loopback 端口，不与正在运行的本机预览实例争用固定端口。
 - Playwright 固化真实拖拽、390px 无横向溢出、讨论/Proposal attention 分离、WebSocket 无刷新推进和
-  option-first Result Review。
+  可读 Proposal 引用、option-first Result Review；Go Gate 固化 Provider 纠错、规范化持久化和 OpenCode
+  stream 终止协议。
 - protocol v1 数据仍可读取和 replay；v2 不创建 Verifier。
 - restart/replay 不调用 Provider、不启动新 Cycle、不重复 committed event 或外部副作用。
 - Recorder 非法动作最多纠正一次；第二次仍不符合协议时保留当前 Result 并返回用户审阅。

@@ -77,8 +77,14 @@ func (b programmaticBackend) Execute(ctx context.Context, request runner.Request
 
 func programmaticOutput(prompt string) string {
 	switch {
-	case strings.Contains(prompt, "MALFORMED_PROVIDER_OUTPUT"):
+	case strings.Contains(prompt, "MALFORMED_PROVIDER_OUTPUT") && strings.Contains(prompt, "in a Nemeton design meeting"):
+		if strings.Contains(prompt, "Protocol correction:") && !strings.Contains(prompt, "PERSISTENT_MALFORMED_PROVIDER_OUTPUT") {
+			return `{"summary":"corrected proposal","claims":["claim"],"evidence":["repository experiment"],"risks":[],"candidate_items":[{"kind":"decision","statement":"adopt corrected design"}]}`
+		}
 		return "not-json"
+	case strings.Contains(prompt, "WRAPPED_PROVIDER_OUTPUT") && strings.Contains(prompt, "in a Nemeton design meeting"):
+		return "I have finished the repository review.```json\n" +
+			`{"summary":"wrapped proposal","claims":["claim"],"evidence":["repository experiment"],"risks":[],"candidate_items":[{"kind":"decision","statement":"adopt wrapped design"}]}` + "\n```"
 	case strings.Contains(prompt, "sole Recorder continuing"):
 		references := regexp.MustCompile(`"id":"([0-9a-f-]+)"`).FindAllStringSubmatch(prompt, -1)
 		id := "missing"
@@ -584,7 +590,7 @@ func TestMalformedProviderOutputFailsRunsWithEvidence(t *testing.T) {
 		t.Fatalf("open Project: %v", err)
 	}
 	snapshot, err := service.Create(ctx, CreateInput{ProjectID: projectSnapshot.Project.ID,
-		Title: "Reject malformed output", Brief: "MALFORMED_PROVIDER_OUTPUT"})
+		Title: "Reject malformed output", Brief: "PERSISTENT_MALFORMED_PROVIDER_OUTPUT"})
 	if err != nil {
 		t.Fatalf("create Meeting: %v", err)
 	}
@@ -610,8 +616,101 @@ func TestMalformedProviderOutputFailsRunsWithEvidence(t *testing.T) {
 			}
 		}
 	}
-	if failed.Meeting.Status != "failed" || failedRuns != 3 {
+	if failed.Meeting.Status != "failed" || failedRuns != 6 {
 		t.Fatalf("malformed Meeting status=%s failed Runs=%d", failed.Meeting.Status, failedRuns)
+	}
+}
+
+func TestStructuredProviderOutputIsCorrectedAndCanonicalized(t *testing.T) {
+	ctx := context.Background()
+	for _, testCase := range []struct {
+		name            string
+		brief           string
+		wantFailedRuns  int
+		forbiddenOutput string
+	}{
+		{name: "bounded correction", brief: "MALFORMED_PROVIDER_OUTPUT", wantFailedRuns: 1},
+		{name: "wrapped JSON", brief: "WRAPPED_PROVIDER_OUTPUT", forbiddenOutput: "I have finished"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := t.TempDir()
+			repository := createMeetingRepository(t, filepath.Join(root, "repository"))
+			_, artifacts, projectService, service := meetingHarness(t, ctx, root)
+			projectSnapshot, err := projectService.Open(ctx, repository, "main")
+			if err != nil {
+				t.Fatalf("open Project: %v", err)
+			}
+			snapshot, err := service.Create(ctx, CreateInput{ProjectID: projectSnapshot.Project.ID,
+				Title: testCase.name, Brief: testCase.brief, Participants: []ParticipantInput{
+					{Seat: "designer-1", Role: "designer", Provider: "opencode", Model: "test-model"},
+					{Seat: "recorder", Role: "recorder", Provider: "codex", Model: "test-model"},
+				}})
+			if err != nil {
+				t.Fatalf("create Meeting: %v", err)
+			}
+			if _, err := service.Start(ctx, snapshot.Meeting.ID); err != nil {
+				t.Fatalf("start Meeting: %v", err)
+			}
+			if err := service.Run(ctx, snapshot.Meeting.ID); err != nil {
+				t.Fatalf("run Meeting: %v", err)
+			}
+
+			completed := inspectMeetingForTest(t, ctx, service, snapshot.Meeting.ID)
+			failedRuns := 0
+			proposalRuns := make([]store.AgentRun, 0, 2)
+			for _, run := range completed.Runs {
+				if run.Phase != "proposal" {
+					continue
+				}
+				proposalRuns = append(proposalRuns, run)
+				if run.Status == "failed" {
+					failedRuns++
+				}
+				if run.SessionID == "" || run.RawStreamDigest == "" || run.OutputDigest == "" {
+					t.Fatalf("proposal Run lacks Session or evidence: %#v", run)
+				}
+			}
+			if failedRuns != testCase.wantFailedRuns {
+				t.Fatalf("failed proposal Runs = %d, want %d", failedRuns, testCase.wantFailedRuns)
+			}
+			if len(proposalRuns) != testCase.wantFailedRuns+1 {
+				t.Fatalf("proposal Runs = %d, want %d", len(proposalRuns), testCase.wantFailedRuns+1)
+			}
+			for _, run := range proposalRuns[1:] {
+				if run.SessionID != proposalRuns[0].SessionID {
+					t.Fatalf("correction changed Session from %s to %s", proposalRuns[0].SessionID, run.SessionID)
+				}
+			}
+			for _, content := range completed.Contents {
+				if content.Kind != "proposal" {
+					continue
+				}
+				body, err := artifacts.Read(content.ContentDigest)
+				if err != nil {
+					t.Fatalf("read canonical Proposal: %v", err)
+				}
+				var output proposalOutput
+				if err := json.Unmarshal(body, &output); err != nil {
+					t.Fatalf("canonical Proposal is not JSON: %v: %s", err, body)
+				}
+				if output.Summary == "" || (testCase.forbiddenOutput != "" && strings.Contains(string(body), testCase.forbiddenOutput)) {
+					t.Fatalf("canonical Proposal = %s", body)
+				}
+				finalRun := proposalRuns[len(proposalRuns)-1]
+				if finalRun.OutputDigest != content.ContentDigest {
+					t.Fatalf("Proposal digest = %s, completed Run output = %s", content.ContentDigest, finalRun.OutputDigest)
+				}
+				raw, err := artifacts.Read(finalRun.RawStreamDigest)
+				if err != nil {
+					t.Fatalf("read raw Provider stream: %v", err)
+				}
+				if testCase.forbiddenOutput != "" && !strings.Contains(string(raw), testCase.forbiddenOutput) {
+					t.Fatalf("raw stream lost Provider preamble: %s", raw)
+				}
+				return
+			}
+			t.Fatal("canonical Proposal content not found")
+		})
 	}
 }
 

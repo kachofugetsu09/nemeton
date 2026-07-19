@@ -54,6 +54,9 @@ Milestone 1B 完成从模糊问题到可供后续 Coding 消费的批准设计�
 - `reconvene`：追加 Recorder opening，Cycle 加一，复用同一 Participant、Provider 配置、Workdir 和 Session。
 - Recorder 决策经过通用协议校验；非法结构或试图用局部动作越过明确的核心语义反对时最多纠正一次，
   仍不合法就保留当前 Result 并回到用户审阅，不无限调用模型。
+- 所有 Provider 结构化输出都在 daemon 边界解码和领域校验；不合格时使用同一 Session 最多纠正一次。
+  原始 NDJSON 保留为运行证据，只有重新序列化的规范 JSON 能成为 Meeting Content；第二次仍不合格时
+  fail-loud，不猜测修复畸形 JSON。
 - 有界讨论达到轮数上限后，v2 交给 Recorder 保存 dissent/unknown 并形成可审阅 Result；不无限循环，
   也不要求用户先替 Agent 指定动作。
 - 用户 `approve` 完整 Result 时，每个设计条目都必须接受；存在反对或稍后项时只能继续交给 Recorder。
@@ -74,7 +77,8 @@ replay 只执行 reducer：不调用 Provider、不启动新 Cycle、不写 Git�
 - 只监听显式 loopback IP，拒绝 wildcard、hostname 和非 loopback 地址。
 - 静态资源由 daemon embed，同源 API 与 WebSocket；Host、Origin、内容读取的 Meeting scope 在边界校验。
 - 首页配置默认三个 Design Agent 和一个 Recorder；参与者配置折叠，Provider 可拖入，也可点击添加。
-- 会议页的注意力中心只有自然语言讨论；`@seat` 直接出现在对话，Proposal 只在右栏。
+- 会议页的注意力中心只有自然语言讨论；`@seat` 直接出现在对话，讨论中引用 Proposal 时把内部 Content ID
+  显示为 `@seat 的提案`，Proposal 的 Candidate Items 只在右栏。
 - Result Review 与会议页分离；逐项选项是主操作，自然语言是可选补充；批准后可复制自包含
   Markdown Handoff。
 - WebSocket runner delta 不触发 projection 全量刷新；committed domain event 在 40ms 窗口内合并刷新，
@@ -96,10 +100,11 @@ replay 只执行 reducer：不调用 Provider、不启动新 Cycle、不写 Git�
 | 层 | 独立能力 | 联合语义 |
 | --- | --- | --- |
 | Store/reducer | migration、event payload、projection、digest | restart/replay 后 review、Result 和 context 完全相同 |
-| Runner | Codex/OpenCode model/options/session | Cycle 复用配置与 Session，协议错误 fail-loud |
+| Runner | Codex/OpenCode model/options/session、NDJSON 终止信号 | Cycle 复用配置与 Session，结构错误有界纠正后 fail-loud，规范内容与原始证据分离 |
 | Meeting | answer、patch、reconvene、approve | 部分接受/拒绝、locked context、Handoff 组合成立 |
 | Handoff | JSON API、Markdown renderer | CLI/UI 导出的正文包含原始问题、批准 Result、digest 和长期上下文 |
 | API/WebSocket | Host/Origin/schema/content scope | committed sequence 恢复且不重复副作用 |
+| Acceptance harness | 独立 data dir、系统分配的 loopback port | 本机预览运行时 Gate 仍可重复执行且不互相污染 |
 | Web UI | 拖拽、移动端、审阅选项 | 讨论/Proposal/Result attention 与 daemon 状态一致 |
 | 兼容性 | protocol v1 可读可 replay | v1 Verifier 历史不影响 v2 无 Verifier 流程 |
 

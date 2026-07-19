@@ -82,6 +82,7 @@ export interface MeetingSnapshot {
     result_digest: string
     result_content_id?: string
     approved_result_digest?: string
+    human_question?: string
     protocol_version: number
   }
   participants: MeetingParticipant[]

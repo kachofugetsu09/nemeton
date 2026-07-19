@@ -82,15 +82,18 @@ test("meeting keeps natural-language discussion central and proposals separate",
   await installMeeting(page, "room", snapshot, {
     human: "明确断线恢复的唯一事实来源。",
     proposal: JSON.stringify({ summary: "Daemon 持有唯一 committed sequence", candidate_items: [{ statement: "浏览器只提交观察游标。" }] }),
-    position: JSON.stringify({ rationale: "@designer-1 同意。客户端不维护独立领域 reducer。" }),
+    position: JSON.stringify({ rationale: "提案 proposal 最完整。客户端不维护独立领域 reducer。" }),
   })
   await page.goto("/")
 
   await expect(page.getByLabel("会议讨论")).toContainText("You")
   await expect(page.getByLabel("会议讨论")).toContainText("明确断线恢复的唯一事实来源。")
-  await expect(page.getByLabel("会议讨论")).toContainText("@designer-1 同意")
-  await expect(page.locator(".proposal-panel-live")).toContainText("Daemon 持有唯一 committed sequence")
-  await expect(page.getByLabel("会议讨论")).not.toContainText("Daemon 持有唯一 committed sequence")
+  await expect(page.getByLabel("会议讨论")).toContainText("Daemon 持有唯一 committed sequence")
+  await expect(page.getByLabel("会议讨论")).toContainText("@designer-1 的提案 最完整")
+  await expect(page.getByLabel("会议讨论")).not.toContainText("提案 proposal")
+  await expect(page.locator(".proposal-panel-live")).toContainText("候选语义")
+  await expect(page.locator(".proposal-panel-live")).toContainText("浏览器只提交观察游标。")
+  await expect(page.locator(".proposal-panel-live")).not.toContainText("Daemon 持有唯一 committed sequence")
   await expect(page.getByText("Verifier", { exact: true })).toHaveCount(0)
 })
 
@@ -142,6 +145,25 @@ test("meeting advances from WebSocket events without a page reload", async ({ pa
   await expect(page.getByText("Committed sequence 13")).toBeVisible()
   await expect(page.getByLabel("Agent 当前活动")).toContainText("@designer-1")
   await expect(page.getByLabel("Agent 当前活动")).toContainText("正在读取仓库或执行工具")
+})
+
+test("failed meeting exposes the actionable provider error", async ({ page }) => {
+  const snapshot = {
+    meeting: {
+      id: "failed", project_id: "project", title: "失败可见性", brief: "失败不能被状态标签吞掉。",
+      status: "failed", cycle: 1, current_round: 1, result_digest: "", protocol_version: 2,
+      human_question: "designer-2 deliberation 连续两次返回无效结构化输出。",
+    },
+    participants: participants.map((participant) => ({ ...participant, status: "failed" })),
+    contents: [{ id: "human-failed", kind: "human_input", cycle: 1, round: 0, content_digest: "h", refs: [] }],
+    candidates: [],
+    stream_version: 32,
+  }
+  await installMeeting(page, "failed", snapshot, { "human-failed": "失败不能被状态标签吞掉。" })
+  await page.goto("/")
+
+  await expect(page.getByRole("alert")).toContainText("会议未完成")
+  await expect(page.getByRole("alert")).toContainText("designer-2 deliberation 连续两次返回无效结构化输出。")
 })
 
 test("result review is option-first and keeps prose optional", async ({ page }) => {

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -102,6 +103,48 @@ echo '{"type":"step_finish","sessionID":"opencode-session","part":{"reason":"sto
 			}
 			if !slices.Contains(result.Command, "test-model") || !slices.Contains(result.Command, item.option) {
 				t.Fatalf("%s command lacks model/options: %v", item.name, result.Command)
+			}
+		})
+	}
+}
+
+func TestOpenCodeFailsClosedOnBrokenEventStream(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Fatal("Runner contract is Unix-only")
+	}
+	for _, testCase := range []struct {
+		name      string
+		stream    string
+		wantError string
+	}{
+		{
+			name: "invalid NDJSON",
+			stream: `echo 'not-json'
+echo '{"type":"step_start","sessionID":"session","part":{}}'
+echo '{"type":"text","sessionID":"session","part":{"text":"done"}}'
+echo '{"type":"step_finish","sessionID":"session","part":{"reason":"stop"}}'`,
+			wantError: "invalid OpenCode NDJSON event",
+		},
+		{
+			name: "missing continuation",
+			stream: `echo '{"type":"step_start","sessionID":"session","part":{}}'
+echo '{"type":"tool_use","sessionID":"session","part":{"tool":"read","state":{"status":"completed"}}}'
+echo '{"type":"step_finish","sessionID":"session","part":{"reason":"tool-calls"}}'`,
+			wantError: "required continuation step",
+		},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			bin := t.TempDir()
+			writeExecutable(t, filepath.Join(bin, "opencode"), `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then echo "opencode-test 1"; exit 0; fi
+`+testCase.stream+"\n")
+			t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+			_, err := (OpenCode{}).Execute(context.Background(), Request{
+				Provider: "opencode", Prompt: "test", Workdir: t.TempDir(),
+			}, func(Delta) {})
+			if err == nil || !strings.Contains(err.Error(), testCase.wantError) {
+				t.Fatalf("Execute error = %v, want %q", err, testCase.wantError)
 			}
 		})
 	}

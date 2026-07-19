@@ -15,11 +15,19 @@ function participantName(snapshot: MeetingSnapshot, id?: string) {
 
 function naturalText(content: MeetingContent) {
   const body = parse(content.body)
+  if (content.kind === "proposal") return String(body.summary || "")
   if (content.kind === "position") return String(body.rationale || body.canonical_statement || body.text || "")
   if (content.kind === "recorder_opening") return String(body.opening || body.response || body.text || "")
   if (content.kind === "recorder_answer") return String(body.response || body.text || "")
   if (content.kind === "review_comment" || content.kind === "human_input") return String(body.text || content.body || "")
   return ""
+}
+
+function readableProposalReferences(text: string, snapshot: MeetingSnapshot) {
+  return snapshot.contents.filter((content) => content.kind === "proposal").reduce((current, content) => {
+    const label = `@${participantName(snapshot, content.participant_id)} 的提案`
+    return current.replaceAll(`提案 ${content.id}`, label).replaceAll(content.id, label)
+  }, text)
 }
 
 export function MeetingRoomLive({ activities, connection, snapshot }: {
@@ -29,7 +37,7 @@ export function MeetingRoomLive({ activities, connection, snapshot }: {
 }) {
   const proposals = useMemo(() => snapshot.contents.filter((item) => item.kind === "proposal"), [snapshot.contents])
   const discussion = useMemo(() => snapshot.contents.filter((item) =>
-    ["human_input", "position", "recorder_opening", "recorder_answer", "review_comment"].includes(item.kind),
+    ["human_input", "proposal", "position", "recorder_opening", "recorder_answer", "review_comment"].includes(item.kind),
   ), [snapshot.contents])
   const running = snapshot.participants.filter((participant) => participant.status === "running")
 
@@ -55,10 +63,16 @@ export function MeetingRoomLive({ activities, connection, snapshot }: {
             return (
               <article className="message" data-human={speaker === "You" || undefined} key={content.id}>
                 <div className="message-meta"><strong>{speaker === "You" ? "You" : `@${speaker}`}</strong><span>Cycle {content.cycle} · Round {content.round}</span></div>
-                <p>{naturalText(content)}</p>
+                <p>{readableProposalReferences(naturalText(content), snapshot)}</p>
               </article>
             )
           })}
+          {snapshot.meeting.status === "failed" && snapshot.meeting.human_question && (
+            <section className="meeting-failure" role="alert">
+              <strong>会议未完成</strong>
+              <p>{snapshot.meeting.human_question}</p>
+            </section>
+          )}
           {(running.length > 0 || connection !== "live") && (
             <section className="agent-activity" aria-label="Agent 当前活动">
               <div className="connection-state" data-state={connection}>
@@ -68,7 +82,7 @@ export function MeetingRoomLive({ activities, connection, snapshot }: {
                 <div className="activity-row" key={participant.id}>
                   <LoaderCircle className="spin" />
                   <strong>@{participantName(snapshot, participant.id)}</strong>
-                  <span>{activities[participant.id] || "正在启动 Provider"}</span>
+                  <span>{activities[participant.id] || "正在开始当前轮次"}</span>
                 </div>
               ))}
             </section>
@@ -93,7 +107,7 @@ export function MeetingRoomLive({ activities, connection, snapshot }: {
             return (
               <article className="proposal-card-live" key={content.id}>
                 <div className="proposal-author">@{participantName(snapshot, content.participant_id)}</div>
-                <h3>{String(body.summary || "Proposal")}</h3>
+                <h3>候选语义</h3>
                 {candidates.map((candidate, index) => <p key={index}>{candidate.statement}</p>)}
               </article>
             )

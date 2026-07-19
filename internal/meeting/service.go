@@ -718,7 +718,13 @@ func (s *Service) ensureProposals(ctx context.Context, meetingID string) error {
 		participant := participant
 		go func() {
 			prompt := proposalPrompt(snapshot.Meeting, participant)
-			result, err := s.execute(ctx, snapshot, participant, "proposal", prompt)
+			result, _, err := executeStructured(ctx, s, snapshot, participant, "proposal", prompt,
+				fmt.Sprintf("decode %s proposal", participant.Seat), func(output proposalOutput) error {
+					if strings.TrimSpace(output.Summary) == "" {
+						return fmt.Errorf("proposal must contain a summary")
+					}
+					return nil
+				})
 			results <- completed{participant: participant, result: result, err: err}
 		}()
 	}
@@ -727,23 +733,6 @@ func (s *Service) ensureProposals(ctx context.Context, meetingID string) error {
 		item := <-results
 		if item.err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", item.participant.Seat, item.err))
-			continue
-		}
-		var output proposalOutput
-		if err := decodeStructured(item.result.RunnerResult.Output, &output); err != nil {
-			protocolErr := fmt.Errorf("decode %s proposal: %w", item.participant.Seat, err)
-			if persistErr := s.persistRunFailure(ctx, meetingID, item.participant, "proposal", item.result, protocolErr); persistErr != nil {
-				return persistErr
-			}
-			failures = append(failures, protocolErr.Error())
-			continue
-		}
-		if strings.TrimSpace(output.Summary) == "" {
-			protocolErr := fmt.Errorf("%s proposal must contain a summary", item.participant.Seat)
-			if persistErr := s.persistRunFailure(ctx, meetingID, item.participant, "proposal", item.result, protocolErr); persistErr != nil {
-				return persistErr
-			}
-			failures = append(failures, protocolErr.Error())
 			continue
 		}
 		if err := s.persistRunResult(ctx, meetingID, item.participant, "proposal", item.result, "proposal", nil); err != nil {
@@ -803,25 +792,16 @@ func (s *Service) deliberate(ctx context.Context, snapshot store.MeetingSnapshot
 			if !isDesignRole(participant.Role) {
 				continue
 			}
-			result, err := s.execute(ctx, current, participant, "deliberation",
-				deliberationPrompt(current.Meeting, participant, conflict.Question, round, materials))
+			prompt := deliberationPrompt(current.Meeting, participant, conflict.Question, round, materials)
+			result, output, err := executeStructured(ctx, s, current, participant, "deliberation", prompt,
+				fmt.Sprintf("decode %s deliberation", participant.Seat), func(output deliberationOutput) error {
+					if output.Verdict != "accept" && output.Verdict != "reject" && output.Verdict != "conditional" {
+						return fmt.Errorf("invalid verdict %q", output.Verdict)
+					}
+					return nil
+				})
 			if err != nil {
 				return false, err
-			}
-			var output deliberationOutput
-			if err := decodeStructured(result.RunnerResult.Output, &output); err != nil {
-				protocolErr := fmt.Errorf("decode %s deliberation: %w", participant.Seat, err)
-				if err := s.persistRunFailure(ctx, current.Meeting.ID, participant, "deliberation", result, protocolErr); err != nil {
-					return false, err
-				}
-				return false, protocolErr
-			}
-			if output.Verdict != "accept" && output.Verdict != "reject" && output.Verdict != "conditional" {
-				protocolErr := fmt.Errorf("%s deliberation returned invalid verdict %q", participant.Seat, output.Verdict)
-				if err := s.persistRunFailure(ctx, current.Meeting.ID, participant, "deliberation", result, protocolErr); err != nil {
-					return false, err
-				}
-				return false, protocolErr
 			}
 			if output.Verdict != "accept" || strings.TrimSpace(output.CanonicalStatement) == "" {
 				allAccept = false
@@ -931,22 +911,11 @@ func (s *Service) recordV2(ctx context.Context, snapshot store.MeetingSnapshot) 
 	if err != nil {
 		return err
 	}
-	result, err := s.execute(ctx, snapshot, recorder, "recording", recorderV2Prompt(snapshot.Meeting, materials))
+	result, output, err := executeStructured(ctx, s, snapshot, recorder, "recording",
+		recorderV2Prompt(snapshot.Meeting, materials), "decode Recorder Result", func(output recorderOutput) error {
+			return validateRecorderResult(output, snapshot.Contents)
+		})
 	if err != nil {
-		return err
-	}
-	var output recorderOutput
-	if err := decodeStructured(result.RunnerResult.Output, &output); err != nil {
-		protocolErr := fmt.Errorf("decode Recorder Result: %w", err)
-		if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recording", result, protocolErr); err != nil {
-			return err
-		}
-		return protocolErr
-	}
-	if err := validateRecorderResult(output, snapshot.Contents); err != nil {
-		if persistErr := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recording", result, err); persistErr != nil {
-			return persistErr
-		}
 		return err
 	}
 	if err := s.persistRunResult(ctx, snapshot.Meeting.ID, recorder, "recording", result, "meeting_result", nil); err != nil {
@@ -987,6 +956,10 @@ func (s *Service) recorderReview(ctx context.Context, snapshot store.MeetingSnap
 			err = validateRecorderReview(snapshot, output)
 		}
 		if err == nil {
+			result, err = s.normalizeStructuredResult(result, output)
+			if err != nil {
+				return err
+			}
 			return s.applyRecorderReview(ctx, snapshot, recorder, result, output)
 		}
 		if persistErr := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recorder_review", result, err); persistErr != nil {
@@ -1001,6 +974,7 @@ func (s *Service) recorderReview(ctx context.Context, snapshot store.MeetingSnap
 			return s.setStatusWithContent(ctx, current, "awaiting_user_review", current.Meeting.Cycle,
 				current.Meeting.CurrentRound, question, current.Meeting.ResultDigest, current.Meeting.ResultContentID)
 		}
+		recorder.SessionID = result.RunnerResult.SessionID
 		prompt = recorderReviewCorrectionPrompt(prompt, err.Error())
 	}
 	panic("unreachable Recorder review attempt count")
@@ -1173,42 +1147,12 @@ func (s *Service) record(ctx context.Context, snapshot store.MeetingSnapshot) er
 	if err != nil {
 		return err
 	}
-	result, err := s.execute(ctx, snapshot, recorder, "recording", recorderPrompt(snapshot.Meeting, materials))
+	result, output, err := executeStructured(ctx, s, snapshot, recorder, "recording",
+		recorderPrompt(snapshot.Meeting, materials), "decode Recorder output", func(output recorderOutput) error {
+			return validateRecorderResult(output, snapshot.Contents)
+		})
 	if err != nil {
 		return err
-	}
-	var output recorderOutput
-	if err := decodeStructured(result.RunnerResult.Output, &output); err != nil {
-		protocolErr := fmt.Errorf("decode Recorder output: %w", err)
-		if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recording", result, protocolErr); err != nil {
-			return err
-		}
-		return protocolErr
-	}
-	if strings.TrimSpace(output.Synthesis) == "" || len(output.Candidates) == 0 {
-		protocolErr := fmt.Errorf("Recorder must produce a synthesis and at least one Candidate")
-		if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recording", result, protocolErr); err != nil {
-			return err
-		}
-		return protocolErr
-	}
-	for _, candidate := range output.Candidates {
-		if strings.TrimSpace(candidate.Statement) == "" || len(candidate.SourceRefs) == 0 {
-			protocolErr := fmt.Errorf("Recorder Candidate must have a statement and source refs")
-			if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recording", result, protocolErr); err != nil {
-				return err
-			}
-			return protocolErr
-		}
-		for _, reference := range candidate.SourceRefs {
-			if !contentExists(snapshot.Contents, reference) {
-				protocolErr := fmt.Errorf("Recorder Candidate references unknown Meeting content %s", reference)
-				if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recording", result, protocolErr); err != nil {
-					return err
-				}
-				return protocolErr
-			}
-		}
 	}
 	if err := s.persistRunResult(ctx, snapshot.Meeting.ID, recorder, "recording", result, "synthesis", nil); err != nil {
 		return err
@@ -1263,24 +1207,15 @@ func (s *Service) verify(ctx context.Context, snapshot store.MeetingSnapshot) er
 	if err != nil {
 		return err
 	}
-	result, err := s.execute(ctx, snapshot, verifier, "verifying", verifierPrompt(snapshot.Meeting, materials))
+	result, output, err := executeStructured(ctx, s, snapshot, verifier, "verifying",
+		verifierPrompt(snapshot.Meeting, materials), "decode Verifier output", func(output verifierOutput) error {
+			if !output.Clear && len(output.BlockingFindings) == 0 {
+				return fmt.Errorf("Verifier must provide blocking findings when clear is false")
+			}
+			return nil
+		})
 	if err != nil {
 		return err
-	}
-	var output verifierOutput
-	if err := decodeStructured(result.RunnerResult.Output, &output); err != nil {
-		protocolErr := fmt.Errorf("decode Verifier output: %w", err)
-		if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, verifier, "verifying", result, protocolErr); err != nil {
-			return err
-		}
-		return protocolErr
-	}
-	if !output.Clear && len(output.BlockingFindings) == 0 {
-		protocolErr := fmt.Errorf("Verifier must provide blocking findings when clear is false")
-		if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, verifier, "verifying", result, protocolErr); err != nil {
-			return err
-		}
-		return protocolErr
 	}
 	if err := s.persistRunResult(ctx, snapshot.Meeting.ID, verifier, "verifying", result, "verification", nil); err != nil {
 		return err
@@ -1330,6 +1265,56 @@ type runResult struct {
 	RawRecord    artifact.Record
 	StderrRecord artifact.Record
 	Error        string
+}
+
+// executeStructured performs one bounded correction and returns canonical JSON.
+func executeStructured[T any](ctx context.Context, service *Service, snapshot store.MeetingSnapshot,
+	participant store.MeetingParticipant, phase, prompt, label string, validate func(T) error) (runResult, T, error) {
+	var zero T
+	for attempt := 1; attempt <= 2; attempt++ {
+		// 1. Execute against the participant's persisted Provider Session.
+		result, err := service.execute(ctx, snapshot, participant, phase, prompt)
+		if err != nil {
+			return result, zero, err
+		}
+
+		// 2. Decode and validate at the Provider trust boundary.
+		var output T
+		protocolErr := decodeStructured(result.RunnerResult.Output, &output)
+		if protocolErr == nil {
+			protocolErr = validate(output)
+		}
+		if protocolErr == nil {
+			result, err = service.normalizeStructuredResult(result, output)
+			return result, output, err
+		}
+		protocolErr = fmt.Errorf("%s: %w", label, protocolErr)
+		if err := service.persistRunFailure(ctx, snapshot.Meeting.ID, participant, phase, result, protocolErr); err != nil {
+			return result, zero, err
+		}
+		if attempt == 2 {
+			return result, zero, protocolErr
+		}
+
+		// 3. Resume the same Session once with the concrete protocol violation.
+		participant.SessionID = result.RunnerResult.SessionID
+		prompt = structuredCorrectionPrompt(prompt, protocolErr.Error())
+	}
+	panic("unreachable structured Provider attempt count")
+}
+
+func (s *Service) normalizeStructuredResult(result runResult, output any) (runResult, error) {
+	data, err := json.Marshal(output)
+	if err != nil {
+		return runResult{}, fmt.Errorf("encode canonical Provider output: %w", err)
+	}
+	record, err := s.artifacts.Put(data, "application/json")
+	if err != nil {
+		return runResult{}, err
+	}
+	result.RunnerResult.Output = string(data)
+	result.OutputRecord = record
+	return result, nil
 }
 
 func (s *Service) execute(ctx context.Context, snapshot store.MeetingSnapshot, participant store.MeetingParticipant, phase, prompt string) (runResult, error) {

@@ -58,14 +58,14 @@ function activityLabel(delta: RunnerDelta) {
     "turn.started": "正在分析项目与任务",
     "item.started": "正在读取仓库或执行工具",
     "item.completed": "已完成一步，正在整理证据",
-    "turn.completed": "正在提交提案",
+    "turn.completed": "正在完成当前发言",
     step_start: "正在分析项目与任务",
-    text: "正在整理提案",
-    step_finish: "正在提交提案",
+    text: "正在整理当前发言",
+    step_finish: "正在完成当前发言",
     raw: "正在处理 Provider 输出",
     error: "Provider 报告错误",
   }
-  return labels[delta.type] || `正在执行 ${delta.type}`
+  return labels[delta.type] || "正在执行 Provider 步骤"
 }
 
 export default function App() {

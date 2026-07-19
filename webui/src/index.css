@@ -151,7 +151,10 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .message-meta strong { color: var(--accent); font-size: 12px; }
 .message[data-human] .message-meta strong { color: var(--ink); }
 .message-meta span { color: var(--quiet); font-size: 12px; font-variant-numeric: tabular-nums; }
-.message p { font-size: 16px; line-height: 1.65; margin: 10px 0 0; max-width: 72ch; white-space: pre-wrap; }
+.message p { font-size: 16px; line-height: 1.65; margin: 10px 0 0; max-width: 72ch; overflow-wrap: break-word; white-space: pre-wrap; }
+.meeting-failure { border-bottom: 1px solid var(--line); margin: 24px auto 0; max-width: 780px; padding-bottom: 24px; }
+.meeting-failure strong { color: var(--danger); font-size: 12px; }
+.meeting-failure p { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 8px 0 0; overflow-wrap: break-word; }
 .agent-activity { border-bottom: 1px solid var(--line); display: grid; gap: 10px; margin: 24px auto 0; max-width: 780px; padding-bottom: 24px; }
 .connection-state { align-items: center; color: var(--quiet); display: flex; font-size: 11px; gap: 7px; }
 .connection-state > span { background: currentColor; border-radius: 50%; height: 5px; width: 5px; }
@@ -170,7 +173,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .proposal-card-live + .proposal-card-live { margin-top: 9px; }
 .proposal-author { color: var(--accent); font-size: 12px; font-weight: 700; }
 .proposal-card-live h3 { font-size: 13px; line-height: 1.45; margin: 8px 0 10px; }
-.proposal-card-live p { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; padding: 9px 0 0; }
+.proposal-card-live p { border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1.5; margin: 0; overflow-wrap: break-word; padding: 9px 0 0; }
 .quiet-empty { color: var(--quiet); font-size: 12px; padding: 8px; }
 
 .review-view, .handoff-view { min-height: 100vh; }

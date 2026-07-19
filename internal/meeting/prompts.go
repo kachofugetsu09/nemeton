@@ -33,6 +33,12 @@ Return one JSON object and no prose outside it:
 `, participant.Role, round, roleResponsibility(participant.Role), meeting.Brief, question, materials)
 }
 
+func structuredCorrectionPrompt(prompt, violation string) string {
+	return fmt.Sprintf(`%s
+
+Protocol correction: your previous response was rejected because %s. Return exactly one valid JSON object matching the requested shape. Do not add a preamble, Markdown fence, commentary, or unescaped quotes inside JSON strings.`, prompt, violation)
+}
+
 func recorderPrompt(meeting store.Meeting, materials string) string {
 	return fmt.Sprintf(`You are the Recorder in a Nemeton design meeting. You compile; you do not invent or decide. Every candidate must cite one or more durable material IDs supplied below.
 
