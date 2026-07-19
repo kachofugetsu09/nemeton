@@ -132,9 +132,15 @@ func (Codex) Catalog(ctx context.Context) (Catalog, error) {
 	if err := stdin.Close(); err != nil {
 		return Catalog{}, fmt.Errorf("close Codex app-server stdin: %w", err)
 	}
-	waitErr := command.Wait()
+	for scanner.Scan() {
+	}
+	stdoutErr := scanner.Err()
 	stderrErr := <-stderrDone
+	waitErr := command.Wait()
 	finished = true
+	if stdoutErr != nil {
+		return Catalog{}, fmt.Errorf("drain Codex app-server stdout: %w", stdoutErr)
+	}
 	if stderrErr != nil {
 		return Catalog{}, fmt.Errorf("read Codex app-server stderr: %w", stderrErr)
 	}
