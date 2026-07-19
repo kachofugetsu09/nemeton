@@ -12,7 +12,8 @@ Accepted decision 记录已经由用户确认、会约束未来实现的决定�
 | [`0004`](0004-sqlite-local-single-writer.md) | 本地 v1 使用 SQLite 和单逻辑写入者 | Accepted | 2026-07-19 |
 | [`0005`](0005-human-semantic-activation-and-system-gates.md) | 人类负责语义激活，系统 Gate 负责实现验收 | Accepted | 2026-07-19 |
 | [`0006`](0006-go-modular-monolith.md) | v1 使用 Go 模块化单体和系统 Git | Accepted | 2026-07-19 |
-| [`0007`](0007-project-workbook-is-shared-reality.md) | 项目工作手册是 Agent 协作的共享现实 | Accepted | 2026-07-19 |
+| [`0007`](0007-project-workbook-is-shared-reality.md) | 项目工作手册是 Agent 协作的共享现实 | Accepted；能力边界由 0008 修订 | 2026-07-19 |
+| [`0008`](0008-semantic-ci-gate.md) | 原子语义与跨组件联合语义由 CI Hard Gate 保护 | Accepted；Amends 0007 | 2026-07-19 |
 
 ## 记录规则
 

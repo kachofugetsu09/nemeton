@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
+cd "$repo_root"
+
+unformatted=$(find cmd internal migrations -name '*.go' -type f -exec gofmt -l {} +)
+if [[ -n "$unformatted" ]]; then
+  echo "gofmt required:" >&2
+  echo "$unformatted" >&2
+  exit 1
+fi
+
+git diff --check
+git diff --cached --check
+empty_tree=$(git hash-object -t tree /dev/null)
+git diff --check "$empty_tree" HEAD
+go vet ./...
+go test -count=1 -race ./...
+go build ./cmd/nemeton ./cmd/nemetond

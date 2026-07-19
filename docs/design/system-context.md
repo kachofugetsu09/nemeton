@@ -10,8 +10,8 @@
 
 - 源码仓库位于 `/mnt/data/coding/nemeton`。
 - 初始基线为 `53fc381cc9f4f76a7844ff964bd3fc86f175dff8`，分支为 `main`。
-- 当前没有 Git remote。
-- 初始基线只有 README 和文档；没有 Go module、业务代码、schema、migration、测试、CI、Docker、数据库或运行服务。
+- Git remote `origin` 为 `git@github.com:kachofugetsu09/nemeton.git`。
+- 初始基线只有 README 和文档。当前仓库已经实现 Go module、业务代码、SQLite schema/migration、真实测试和 Linux/macOS CI；仍没有 Docker 或常驻安装服务。
 - `.codegraph/` 不存在；是否建立索引由用户决定。
 
 这些事实描述初始化时点，不是长期产品要求。以后判断当前实现必须重新读取 Git、文件和运行证据。
@@ -53,7 +53,7 @@ CLI / future UI ───►│       nemetond        │◄── Agent / Model
       current views               code + active .nemeton/
 ```
 
-这张图是 Accepted design，不是当前已运行的系统。
+图中的 CLI、daemon、SQLite event/projection、artifact store 和只读 target Git 已在 Milestone 0 实现；Agent/Model Runner、NOW projector 和 `.nemeton/` 发布仍是 Accepted design。
 
 ## 4. Capability 与状态 owner
 
@@ -82,11 +82,6 @@ HTTP、CLI、Provider、Git、数据库反序列化、artifact 读取和外部 c
 
 ## 7. 未知
 
-以下内容没有从空仓库现状推断，继续由 `NOW.md` 保留：
-
-- Go module path 和未来 remote。
-- v1 公开支持平台和最低 Git 版本。
-- 应用数据目录、数据库文件和 managed worktree root 的具体路径。
-- Nemeton 管理目标项目时 integration branch 的解析与选择规则。
-- 首批 Model Provider 和执行 Agent。
-- governance change 使用本地 commit 还是 PR 激活的默认政策。
+仓库设置、平台、目录、integration branch 和首批执行适配器已经由 Human 确认，
+见 [`milestone-0-foundation.md`](milestone-0-foundation.md) 和 `projectneed.md` 第 22 节。
+仍未确认的是 governance change 使用本地 commit 还是 PR 激活的默认政策。

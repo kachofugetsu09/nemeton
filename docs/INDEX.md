@@ -37,6 +37,8 @@ AGENTS.md
 | [`decisions/README.md`](decisions/README.md) | 索引正式决定，说明修订和 supersede 规则 | Current |
 | [`design/system-context.md`](design/system-context.md) | 区分当前仓库事实与已接受的未来系统边界 | Current |
 | [`design/persistence-state-map.md`](design/persistence-state-map.md) | 记录持久化 owner、增减、重建和恢复语义 | Accepted design map |
+| [`design/milestone-0-foundation.md`](design/milestone-0-foundation.md) | 固定 Project Reality、事件、daemon、replay 与验收设计 | Accepted |
+| [`contracts/2026-07-19-milestone-0.md`](contracts/2026-07-19-milestone-0.md) | 固定 Milestone 0 实现范围、副作用、验证和交付授权 | Approved |
 | [`spark/2026-07-19-nemeton-v1-design.md`](spark/2026-07-19-nemeton-v1-design.md) | v1 模块、状态机、API、存储和自举设计 | Approved input |
 | [`spark/2026-07-19-nemeton-swarm-meeting-design.md`](spark/2026-07-19-nemeton-swarm-meeting-design.md) | Swarm 会议时序、讨论、收敛和扩展设计 | Approved input |
 | [`research/2026-07-19-public-multi-agent-designs.md`](research/2026-07-19-public-multi-agent-designs.md) | 公开多 Agent 系统的研究快照 | Evidence |
@@ -52,6 +54,7 @@ AGENTS.md
 | [`0005`](decisions/0005-human-semantic-activation-and-system-gates.md) | 人类负责语义激活，系统 Gate 负责实现验收 | Accepted |
 | [`0006`](decisions/0006-go-modular-monolith.md) | v1 使用 Go 模块化单体和系统 Git | Accepted |
 | [`0007`](decisions/0007-project-workbook-is-shared-reality.md) | 项目工作手册是 Agent 协作的共享现实 | Accepted |
+| [`0008`](decisions/0008-semantic-ci-gate.md) | 原子语义与跨组件联合语义由 CI Hard Gate 保护 | Accepted |
 
 ## 4. 按任务类型阅读
 
@@ -90,10 +93,13 @@ docs/
 ├── writing-rules.md
 ├── decisions/
 │   ├── README.md
-│   └── 0001–0007
+│   └── 0001–0008
 ├── design/
 │   ├── system-context.md
-│   └── persistence-state-map.md
+│   ├── persistence-state-map.md
+│   └── milestone-0-foundation.md
+├── contracts/
+│   └── 2026-07-19-milestone-0.md
 ├── templates/
 │   ├── agent-task-contract.md
 │   ├── context-handoff.yaml

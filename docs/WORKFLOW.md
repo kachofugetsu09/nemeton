@@ -4,7 +4,9 @@
 
 ## 0. 当前仓库能力边界
 
-当前仓库只有已确认文档，还没有业务代码、测试、CI、Docker 或自动语义 Gate。本文后半部分的 Contract、Gate、Campaign 和 projector 是 Nemeton 的 Accepted 产品语义，不代表当前仓库已经提供对应命令。
+当前仓库已经实现 Milestone 0 的 Go 模块、SQLite 事件内核、Project Reality、artifact、replay、CLI/daemon、真实验收测试和仓库级 CI Hard Gate。唯一验证入口是 `scripts/semantic-gate`；GitHub 上稳定的 required check 名称是 `semantic-gate`。
+
+仓库级 Gate 只保护当前实现的原子事务与跨组件联合语义，不等于本文后半部分 Accepted 产品设计中的 Contract、Task、Integration 或 Release Gate 引擎。当前仓库仍没有 Docker，也没有 Meeting、Campaign、Agent Runner 或产品 projector。
 
 在 Nemeton 能自举管理自身以前，仓库变更通过 Babel 工作流执行；不能用未来产品能力伪装当前验证已经完成。
 
@@ -36,7 +38,7 @@ Read → Ownership → Isolate → Contract → Implement → Verify → Review 
 
 ### A.6 Verify
 
-运行与改动直接相关、当前仓库真实存在的最小验证。记录命令、target SHA 或 diff、退出状态和未验证项。没有测试或 Gate 时明确写“未初始化”，不能发明命令。
+运行与改动直接相关、当前仓库真实存在的最小验证。Milestone 0 的完整验证统一运行 `scripts/semantic-gate`，它检查格式、diff、vet、race 测试和两个命令入口的构建。记录命令、target SHA 或 diff、退出状态和未验证项；不能发明命令。
 
 ### A.7 Review
 

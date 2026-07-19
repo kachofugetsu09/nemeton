@@ -1,0 +1,70 @@
+name: Semantic Gate
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: semantic-gate-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantic-linux:
+    name: semantic-linux
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact target
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install contract Go version
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run semantic gate
+        run: scripts/semantic-gate
+
+  semantic-macos:
+    name: semantic-macos
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact target
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install contract Go version
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Run semantic gate
+        run: scripts/semantic-gate
+
+  semantic-gate:
+    name: semantic-gate
+    if: ${{ always() }}
+    needs:
+      - semantic-linux
+      - semantic-macos
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Require every supported platform
+        env:
+          LINUX_RESULT: ${{ needs.semantic-linux.result }}
+          MACOS_RESULT: ${{ needs.semantic-macos.result }}
+        run: |
+          if [[ "$LINUX_RESULT" != "success" || "$MACOS_RESULT" != "success" ]]; then
+            echo "semantic gate failed: linux=$LINUX_RESULT macos=$MACOS_RESULT" >&2
+            exit 1
+          fi
