@@ -28,6 +28,9 @@ func (Codex) Execute(ctx context.Context, request Request, emit func(Delta)) (Re
 	if request.Model != "" {
 		args = append(args, "--model", request.Model)
 	}
+	if effort := request.Options["reasoning_effort"]; effort != "" {
+		args = append(args, "-c", fmt.Sprintf("model_reasoning_effort=%q", effort))
+	}
 	command := append([]string{"codex"}, args...)
 	command = append(command, "<prompt:runner_input>")
 	args = append(args, request.Prompt)

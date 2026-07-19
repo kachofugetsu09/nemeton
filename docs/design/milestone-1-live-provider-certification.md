@@ -59,3 +59,28 @@ stdout/stderr/版本/规范化命令 Evidence 和 source checkout 末端观察�
 - CI 不读取用户凭据、不访问模型服务，也不把 mock 注册为生产 fallback。
 - 会议内部关于“Milestone 0 baseline 不包含 Provider”的候选项描述的是被观察的目标
   checkout，不是否认运行本次会议的 Milestone 1 host 已经调用真实 Provider。
+
+## 2026-07-20：Protocol v2 审阅闭环认证
+
+Milestone 1B 使用最终 Runner 和 Meeting 服务验证了两条真实路径。真实调用在宿主机的认证临时
+repository/Workdir 中运行；没有挂载用户主 checkout，也没有把凭据、原始输出或隐藏推理写入仓库。
+
+| 场景 | Provider | 模型与配置 | 结果 |
+| --- | --- | --- | --- |
+| 直接批准并生成 Handoff | `codex-cli 0.144.6` | `gpt-5.4-mini`，`reasoning_effort=low` | Result 完整；逐项批准与持久上下文成功；Handoff 可读 |
+| 澄清、局部修订、核心重开 | `opencode 1.17.18` | `opencode-go/deepseek-v4-pro`，`variant=high` | 同一 Session 依次选择 `answer → patch → reconvene`，Cycle 进入 2 |
+
+真实输出 Evidence digest：
+
+- Codex recording：`92e886ea54c20f70f298007d078a9b8ccaa59dafbb47935d94d71340c4f07afe`。
+- OpenCode recording：`a18fb1d0fedecadf30aa476edc4110404c446bbb0aa8a95c40552757f464415a`。
+- OpenCode answer：`9a902b9b9617405cc11d802b3111153cb2492d002a9bf7f10e8c6b9468004324`。
+- OpenCode patch：`68942be1cd820f4cd87f70f268c7dd6674ddb32ab025cb3c4961978fc6a88042`。
+- OpenCode reconvene：`674262f3888fbbfd3398dc9d10fabefcaf7beba7bdd09d714f346529d0f5e258`。
+
+首次 OpenCode 运行由严格 JSON schema 拒绝了 Recorder patch 中尚未声明的 `source_refs`。这不是
+静默兼容问题：实现补齐了 review Candidate 的 durable source-ref 合同和校验，确定性测试通过后只重跑
+失败的 OpenCode 子场景，最终 577.20 秒通过。Codex 已通过的路径没有重复消耗额度。
+
+未来 CI 不运行上述真实调用。`scripts/semantic-gate` 使用程序化 Provider 和 Playwright 固化相同的领域
+分支；`certification/Dockerfile` 只构建不含凭据的确定性认证环境。

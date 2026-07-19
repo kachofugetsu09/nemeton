@@ -22,6 +22,7 @@ const maximumStreamLine = 16 << 20
 type Request struct {
 	Provider   string
 	Model      string
+	Options    map[string]string
 	Prompt     string
 	Workdir    string
 	OutputDir  string

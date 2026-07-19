@@ -1,6 +1,9 @@
 package api
 
-import "github.com/kachofugetsu09/nemeton/internal/store"
+import (
+	"github.com/kachofugetsu09/nemeton/internal/meeting"
+	"github.com/kachofugetsu09/nemeton/internal/store"
+)
 
 type Health struct {
 	Status              string   `json:"status"`
@@ -29,10 +32,19 @@ type CurrentStateResponse struct {
 }
 
 type CreateMeetingRequest struct {
-	Kind      string            `json:"kind,omitempty"`
-	Title     string            `json:"title"`
-	Brief     string            `json:"brief"`
-	Providers map[string]string `json:"providers,omitempty"`
+	Kind         string               `json:"kind,omitempty"`
+	Title        string               `json:"title"`
+	Brief        string               `json:"brief"`
+	Providers    map[string]string    `json:"providers,omitempty"`
+	Participants []ParticipantRequest `json:"participants,omitempty"`
+}
+
+type ParticipantRequest struct {
+	Seat            string            `json:"seat"`
+	Role            string            `json:"role"`
+	Provider        string            `json:"provider"`
+	Model           string            `json:"model"`
+	ProviderOptions map[string]string `json:"provider_options,omitempty"`
 }
 
 type HumanInputRequest struct {
@@ -43,6 +55,39 @@ type RatificationRequest struct {
 	CandidateID string `json:"candidate_id"`
 	Disposition string `json:"disposition"`
 	Reason      string `json:"reason,omitempty"`
+}
+
+type ReviewItemRequest struct {
+	CandidateID        string `json:"candidate_id"`
+	DesignDisposition  string `json:"design_disposition"`
+	ContextDisposition string `json:"context_disposition"`
+}
+
+type MeetingReviewRequest struct {
+	ResultAction string              `json:"result_action"`
+	Items        []ReviewItemRequest `json:"items"`
+	Comment      string              `json:"comment,omitempty"`
+}
+
+type ContentResponse struct {
+	Content meeting.Content `json:"content"`
+}
+
+type HandoffResponse struct {
+	Handoff meeting.Handoff `json:"handoff"`
+}
+
+type ProviderCatalog struct {
+	Providers []ProviderDescriptor `json:"providers"`
+}
+
+type ProviderDescriptor struct {
+	ID           string   `json:"id"`
+	Label        string   `json:"label"`
+	ModelMode    string   `json:"model_mode"`
+	KnownModels  []string `json:"known_models"`
+	Option       string   `json:"option"`
+	OptionValues []string `json:"option_values"`
 }
 
 type MeetingResponse struct {

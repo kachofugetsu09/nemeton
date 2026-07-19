@@ -22,6 +22,10 @@ const (
 	MeetingConflictSet             = "MeetingConflictSet.v1"
 	SemanticCandidateAdded         = "SemanticCandidateAdded.v1"
 	SemanticCandidateDispositioned = "SemanticCandidateDispositioned.v1"
+	MeetingCreatedV2               = "MeetingCreated.v2"
+	ParticipantAddedV2             = "MeetingParticipantAdded.v2"
+	MeetingReviewed                = "MeetingReviewed.v1"
+	MeetingResultApproved          = "MeetingResultApproved.v1"
 	SchemaVersion                  = 1
 )
 
@@ -108,6 +112,11 @@ type MeetingCreatedPayload struct {
 	CreatedAt           string `json:"created_at"`
 }
 
+type MeetingCreatedV2Payload struct {
+	MeetingCreatedPayload
+	ProtocolVersion int `json:"protocol_version"`
+}
+
 type MeetingParticipantAddedPayload struct {
 	MeetingID     string `json:"meeting_id"`
 	ParticipantID string `json:"participant_id"`
@@ -120,14 +129,42 @@ type MeetingParticipantAddedPayload struct {
 	AddedAt       string `json:"added_at"`
 }
 
+type MeetingParticipantAddedV2Payload struct {
+	MeetingParticipantAddedPayload
+	ProviderOptions map[string]string `json:"provider_options"`
+}
+
 type MeetingStatusSetPayload struct {
-	MeetingID     string `json:"meeting_id"`
-	Status        string `json:"status"`
-	Cycle         int    `json:"cycle"`
-	CurrentRound  int    `json:"current_round"`
-	HumanQuestion string `json:"human_question"`
-	ResultDigest  string `json:"result_digest"`
-	UpdatedAt     string `json:"updated_at"`
+	MeetingID       string `json:"meeting_id"`
+	Status          string `json:"status"`
+	Cycle           int    `json:"cycle"`
+	CurrentRound    int    `json:"current_round"`
+	HumanQuestion   string `json:"human_question"`
+	ResultDigest    string `json:"result_digest"`
+	ResultContentID string `json:"result_content_id,omitempty"`
+	UpdatedAt       string `json:"updated_at"`
+}
+
+type SemanticReviewItem struct {
+	CandidateID        string `json:"candidate_id"`
+	DesignDisposition  string `json:"design_disposition"`
+	ContextDisposition string `json:"context_disposition"`
+}
+
+type MeetingReviewedPayload struct {
+	MeetingID       string               `json:"meeting_id"`
+	ResultContentID string               `json:"result_content_id"`
+	ResultAction    string               `json:"result_action"`
+	Items           []SemanticReviewItem `json:"items"`
+	CommentDigest   string               `json:"comment_digest,omitempty"`
+	ReviewedAt      string               `json:"reviewed_at"`
+}
+
+type MeetingResultApprovedPayload struct {
+	MeetingID       string `json:"meeting_id"`
+	ResultContentID string `json:"result_content_id"`
+	ResultDigest    string `json:"result_digest"`
+	ApprovedAt      string `json:"approved_at"`
 }
 
 type AgentRunRecordedPayload struct {
@@ -186,11 +223,13 @@ type SemanticCandidateAddedPayload struct {
 }
 
 type SemanticCandidateDispositionedPayload struct {
-	MeetingID   string `json:"meeting_id"`
-	CandidateID string `json:"candidate_id"`
-	Status      string `json:"status"`
-	Reason      string `json:"reason"`
-	UpdatedAt   string `json:"updated_at"`
+	MeetingID          string `json:"meeting_id"`
+	CandidateID        string `json:"candidate_id"`
+	Status             string `json:"status"`
+	DesignDisposition  string `json:"design_disposition,omitempty"`
+	ContextDisposition string `json:"context_disposition,omitempty"`
+	Reason             string `json:"reason"`
+	UpdatedAt          string `json:"updated_at"`
 }
 
 func NewID() (string, error) {

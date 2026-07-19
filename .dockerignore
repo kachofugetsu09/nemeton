@@ -1,0 +1,6 @@
+.git
+.codegraph
+webui/node_modules
+webui/test-results
+webui/playwright-report
+*.log

@@ -4,11 +4,11 @@ Nemeton 是一套面向 Agent 原生软件项目的本地语义控制平面。
 
 > 状态：Current synthesis
 >
-> 日期：2026-07-19
+> 日期：2026-07-20
 >
 > 范围：产品命题、长期不变量、领域模型、技术架构、工作流、验收与自举路线
 
-> 权威边界：2026-07-19，用户确认 `docs/decisions/0001–0006` 以及本文中不与这些决定冲突的内容为长期产品语义。Accepted decision 优先于本文；当前实现事实仍以代码、配置、schema 和 Git 为证据。
+> 权威边界：用户已确认 `docs/decisions/0001–0010` 以及本文中不与这些决定冲突的内容为长期产品语义。Accepted decision 优先于本文；当前实现事实仍以代码、配置、schema 和 Git 为证据。
 
 本文是初始化前已经形成的完整 synthesis，因此保留现有领域模型、详细设计和路线图，不做批量迁移。后续新增信息必须遵守 [`writing-rules.md`](writing-rules.md)：长期语义在本文维护，决定理由进入 `decisions/`，问题级实现设计进入 `design/`，当前工作进入 `NOW.md`。
 
@@ -47,7 +47,7 @@ Nemeton 负责维护以下工作循环：
 - 在人类无法阅读全部 diff 时维持系统级信任。
 - 通过历史会议和执行记录恢复项目语义。
 
-第一版产品形态是本地 daemon、CLI 和 HTTP/WebSocket API。会议 UI 在状态机稳定后接入。
+第一版产品形态是本地 daemon、CLI、HTTP/WebSocket API 和 Local Web UI。
 
 ## 3. 长期判断
 
@@ -140,7 +140,7 @@ Babel skill 已经验证了 discussion-first、项目工作手册、任务合同
 | 概念完整性 | 多个 Agent 分别优化局部，组合后产品目标分裂 | Active Semantics、Canonical Decision、单一激活历史 |
 | 沟通成本 | Agent 增加后互相传递大量摘要，事实在转述中失真 | Shared Blackboard、稳定 ID、Evidence 引用、稀疏 Review Graph |
 | 向落后项目增加人手 | 任务边界没有理清时继续增加 Agent，冲突和返工随之增加 | Reality/Contract Gate、write scope、依赖和停止条件 |
-| 外科手术队伍 | 每个参与者都改架构，写入权和裁决权混在一起 | 平等 Design Seat、单 Recorder、Verifier、确定性 Facilitator |
+| 外科手术队伍 | 每个参与者都改架构，写入权和裁决权混在一起 | 平等 Design Seat、单 Recorder、确定性 Facilitator、人类最终批准 |
 | 第二系统效应 | 第一版试图加入 SaaS、多仓库、远程 worker 和通用插件 | 明确 v1 非目标和里程碑边界 |
 | 计划必须允许变化 | 大重构在第一轮之后出现新证据，初始 DAG 很快失效 | 动态 Campaign、Improvement Policy、可版本化合同 |
 | 文档与沟通 | NOW、设计、聊天和代码各自记录不同事实 | 事件事实源、正式 Decision、可重新生成的投影 |
@@ -288,12 +288,12 @@ Trust State 保存：
 | Human | 提出问题，确认产品语义和风险取舍 |
 | Facilitator | 固定事实、控制时序、分配讨论、运行 Convergence Gate |
 | Design Agent | 提交完整方案、质询、修正、提供证据和异议 |
-| Recorder | 编译带来源的 Synthesis Draft 和 Meeting Result |
-| Verifier | 检查事实、约束、组合一致性和验收是否成立 |
+| Recorder | 编译带来源的 Meeting Result；在用户审阅后自主回答、修订或重开下一 Cycle |
+| Verifier | protocol v1 的历史审计席位；protocol v2 不创建 |
 
-Facilitator 是确定性程序。Recorder 只有编译权。Verifier 只能提交 finding。
+Facilitator 是确定性程序。Recorder 只有编译和审阅路由权，无权替用户接受或激活语义。protocol v1 的 Verifier 只能提交 finding。
 
-### 8.2 默认会议时序
+### 8.2 当前 protocol v2 会议时序
 
 ```text
 共同事实冻结
@@ -308,18 +308,19 @@ Conflict Map
     ↓
 围绕 blocking Conflict 讨论
     ↓
-Recorder 生成 Synthesis Draft
+Recorder 生成完整 Result 与 Candidates
     ↓
-Verifier Audit
+Human 逐项处置 + 可选自然语言反馈
     ↓
-逐项 Ratification
+Recorder answer / patch / reconvene
     ↓
-Convergence Gate
+Human approve 完整 Result
     ↓
-Meeting Result
-    ↓
-Human approve / edit / request evidence / reopen / reject
+Approved Context + Coding Design Handoff
 ```
+
+后续 Cycle 属于同一 Meeting，复用 roster、Provider、模型、options、Workdir 和 Session。protocol v1
+的 Verifier、Ratification 和既有事件继续可读、可 replay，但不进入新建 v2 Meeting。
 
 ### 8.3 Agent 通信
 
@@ -343,18 +344,19 @@ Human approve / edit / request evidence / reopen / reject
 Convergence Gate 只接受布尔条件：
 
 ```text
-CONVERGED =
-    canonical_decisions_complete
-    AND hard_constraints_covered
-    AND no_factual_block
-    AND no_constraint_block
-    AND decision_graph_consistent
-    AND ratification_complete
-    AND verifier_clear
-    AND all_dissent_classified
+READY_FOR_REVIEW =
+    bounded_deliberation_finished
+    AND recorder_result_complete
+    AND every_candidate_has_durable_source_refs
+
+APPROVED =
+    human_approved_complete_result
+    AND every_candidate_has_explicit_disposition
 ```
 
-多数票不能抵消有效 factual block 或 constraint block。剩余分歧只能进入 Human Choice、Experiment Required、Needs Evidence 或明确保留的 Dissent。
+多数票不能抵消有效 factual block 或 constraint block。v2 达到讨论上限后由 Recorder 在 Result 中保留
+Dissent、Unknown 和 Human Choice，保证流程必定到达人类可处置状态；用户继续反馈时由 Recorder 判断
+回答、完整修订或使用原阵容重开。
 
 ### 8.5 水平扩展
 
@@ -380,7 +382,9 @@ Recorder 从会议中提炼 Candidate Semantic Item。每个候选保存：
 - unknowns。
 - proposed acceptance obligations。
 
-用户逐项选择 `select`、`reject` 或 `defer`。selected 条目进入 governance change。对应 artifact 进入 integration history 后，系统追加 `SemanticItemActivated` 事件并把条目标记为 active。
+用户逐项选择 `persist`、`result_only`、`reject` 或 `defer`。`persist` 进入数据库 Approved Context，供未来
+Meeting 强制读取；`result_only` 只属于获批设计。两者都不写目标仓库、不生成 commit，也不自动成为 active。
+未来 Governance Writer 把对应 artifact 写入 integration history 后，系统才追加 `SemanticItemActivated` 事件。
 
 目标仓库中的静态语义投影建议使用：
 
@@ -459,7 +463,7 @@ Nemeton 数据目录和 artifact store 保存恢复所需的内容：
 
 ```text
 nemeton CLI ─────┐
-future Web UI ───┼──► nemetond ───► SQLite
+Local Web UI ────┼──► nemetond ───► SQLite
 Agent Runner ────┘        │            │
                           │            └── domain events + projections
                           ├── Git/worktree
@@ -756,8 +760,8 @@ nemeton meeting show <meeting-id>
 4. Adversary 查找绕过入口、并发竞争和不可观测路径。
 5. Agent 共同确认三份状态源、公开 API 和必须保持的错误契约。
 6. Recorder 按所有权、迁移、测试和回滚生成 Canonical Decisions。
-7. Verifier 检查每项决定是否有 Evidence 和可失败的 Acceptance。
-8. 人类确认是否允许短暂兼容层，以及可以接受的迁移风险。
+7. Recorder 保留每项决定的 Evidence、Dissent 和可失败 Acceptance，不能虚构共识。
+8. 人类逐项处置语义，并确认是否允许短暂兼容层以及可以接受的迁移风险。
 
 ### 执行
 
@@ -785,12 +789,17 @@ Campaign 不预先锁死全部任务。第一轮可以包含：
 
 走通 `project open -> events -> projection -> replay`。这一阶段不修改目标仓库。
 
-### Milestone 1：持久化 Swarm Meeting 后端
+### Milestone 1A：持久化 Swarm Meeting 后端
 
 走通 Human Statement、Reality Bundle、默认三个 Design Agent 的 sealed proposal、Reveal、
-Conflict、最多三轮确定性收敛、Recorder、Verifier、Candidate Semantic Item、
-select/reject/defer、数据库 Current State 和 HTTP/WebSocket。会议 UI 在后端状态机稳定后作为
-独立切片接入。
+Conflict、最多三轮确定性收敛、Recorder、protocol v1 Verifier、Candidate Semantic Item、
+数据库 Current State 和 HTTP/WebSocket。
+
+### Milestone 1B：Recorder 审阅闭环与 Local Web UI
+
+新增 protocol v2 动态 Swarm、单 Recorder、跨 Cycle 连续性、逐项设计/上下文处置、Recorder
+自主 `answer|patch|reconvene`、Approved Context、Coding Design Handoff 和同源 Local Web UI。
+本阶段截止到批准结果入库，不执行 Coding 或目标仓库写入。
 
 ### Milestone 2：单任务执行
 

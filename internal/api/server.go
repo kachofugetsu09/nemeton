@@ -45,6 +45,9 @@ type meetingService interface {
 	Start(context.Context, string) (store.MeetingSnapshot, error)
 	Answer(context.Context, string, meeting.HumanInput) (store.MeetingSnapshot, error)
 	Disposition(context.Context, string, meeting.DispositionInput) (store.MeetingSnapshot, error)
+	Review(context.Context, string, meeting.ReviewInput) (store.MeetingSnapshot, error)
+	ReadContent(context.Context, string, string) (meeting.Content, error)
+	Handoff(context.Context, string) (meeting.Handoff, error)
 	EventsAfter(context.Context, string, int64) ([]store.StreamEvent, error)
 }
 
@@ -62,6 +65,10 @@ func NewServer(service projectService, meetings meetingService, hub *realtime.Hu
 	mux.HandleFunc("POST /v1/meetings/{meeting_id}/start", server.startMeeting)
 	mux.HandleFunc("POST /v1/meetings/{meeting_id}/inputs", server.answerMeeting)
 	mux.HandleFunc("POST /v1/meetings/{meeting_id}/ratifications", server.ratifyMeeting)
+	mux.HandleFunc("POST /v1/meetings/{meeting_id}/reviews", server.reviewMeeting)
+	mux.HandleFunc("GET /v1/meetings/{meeting_id}/contents/{content_id}", server.readMeetingContent)
+	mux.HandleFunc("GET /v1/meetings/{meeting_id}/handoff", server.meetingHandoff)
+	mux.HandleFunc("GET /v1/providers", server.providerCatalog)
 	mux.HandleFunc("GET /v1/meetings/{meeting_id}/ws", server.watchMeeting)
 	server.handler = http.MaxBytesHandler(server.requireReady(mux), maximumRequestBody)
 	return server
@@ -92,14 +99,68 @@ func (s *Server) createMeeting(response http.ResponseWriter, request *http.Reque
 		writeError(response, err)
 		return
 	}
+	participants := make([]meeting.ParticipantInput, 0, len(input.Participants))
+	for _, participant := range input.Participants {
+		participants = append(participants, meeting.ParticipantInput{Seat: participant.Seat,
+			Role: participant.Role, Provider: participant.Provider, Model: participant.Model,
+			ProviderOptions: participant.ProviderOptions})
+	}
 	snapshot, err := s.meetings.Create(request.Context(), meeting.CreateInput{
 		ProjectID: projectID, Kind: input.Kind, Title: input.Title,
-		Brief: input.Brief, Providers: input.Providers})
+		Brief: input.Brief, Providers: input.Providers, Participants: participants})
 	if err != nil {
 		writeError(response, err)
 		return
 	}
 	writeJSON(response, http.StatusCreated, MeetingResponse{Meeting: snapshot})
+}
+
+func (s *Server) reviewMeeting(response http.ResponseWriter, request *http.Request) {
+	var input MeetingReviewRequest
+	if err := decodeRequest(request, &input); err != nil {
+		writeError(response, err)
+		return
+	}
+	items := make([]event.SemanticReviewItem, 0, len(input.Items))
+	for _, item := range input.Items {
+		items = append(items, event.SemanticReviewItem{CandidateID: item.CandidateID,
+			DesignDisposition: item.DesignDisposition, ContextDisposition: item.ContextDisposition})
+	}
+	snapshot, err := s.meetings.Review(request.Context(), request.PathValue("meeting_id"),
+		meeting.ReviewInput{ResultAction: input.ResultAction, Items: items, Comment: input.Comment})
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusAccepted, MeetingResponse{Meeting: snapshot})
+}
+
+func (s *Server) readMeetingContent(response http.ResponseWriter, request *http.Request) {
+	content, err := s.meetings.ReadContent(request.Context(), request.PathValue("meeting_id"),
+		request.PathValue("content_id"))
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, ContentResponse{Content: content})
+}
+
+func (s *Server) meetingHandoff(response http.ResponseWriter, request *http.Request) {
+	handoff, err := s.meetings.Handoff(request.Context(), request.PathValue("meeting_id"))
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, HandoffResponse{Handoff: handoff})
+}
+
+func (s *Server) providerCatalog(response http.ResponseWriter, _ *http.Request) {
+	writeJSON(response, http.StatusOK, ProviderCatalog{Providers: []ProviderDescriptor{
+		{ID: "codex", Label: "Codex", ModelMode: "editable", KnownModels: []string{"gpt-5.4-mini"},
+			Option: "reasoning_effort", OptionValues: []string{"low", "medium", "high", "xhigh"}},
+		{ID: "opencode", Label: "OpenCode", ModelMode: "editable", KnownModels: []string{"opencode-go/deepseek-v4-pro"},
+			Option: "variant", OptionValues: []string{"low", "medium", "high"}},
+	}})
 }
 
 func (s *Server) inspectMeeting(response http.ResponseWriter, request *http.Request) {

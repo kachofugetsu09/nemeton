@@ -51,6 +51,26 @@ func (c *Client) RatifyMeeting(ctx context.Context, meetingID string, request Ra
 	return c.meetingRequest(ctx, http.MethodPost, "/v1/meetings/"+meetingID+"/ratifications", request)
 }
 
+func (c *Client) ReviewMeeting(ctx context.Context, meetingID string, request MeetingReviewRequest) (MeetingResponse, error) {
+	return c.meetingRequest(ctx, http.MethodPost, "/v1/meetings/"+meetingID+"/reviews", request)
+}
+
+func (c *Client) MeetingContent(ctx context.Context, meetingID, contentID string) (ContentResponse, error) {
+	var response ContentResponse
+	if err := c.do(ctx, http.MethodGet, "/v1/meetings/"+meetingID+"/contents/"+contentID, nil, &response); err != nil {
+		return ContentResponse{}, err
+	}
+	return response, nil
+}
+
+func (c *Client) MeetingHandoff(ctx context.Context, meetingID string) (HandoffResponse, error) {
+	var response HandoffResponse
+	if err := c.do(ctx, http.MethodGet, "/v1/meetings/"+meetingID+"/handoff", nil, &response); err != nil {
+		return HandoffResponse{}, err
+	}
+	return response, nil
+}
+
 func (c *Client) meetingRequest(ctx context.Context, method, path string, input any) (MeetingResponse, error) {
 	var response MeetingResponse
 	if err := c.do(ctx, method, path, input, &response); err != nil {

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/kachofugetsu09/nemeton/internal/artifact"
@@ -216,9 +217,18 @@ func validateEventPayload(item event.Envelope) error {
 func validateMeetingEventPayload(item event.Envelope) error {
 	var meetingID string
 	switch item.EventType {
-	case event.MeetingCreated:
+	case event.MeetingCreated, event.MeetingCreatedV2:
 		var payload event.MeetingCreatedPayload
-		if err := decodePayload(item, &payload); err != nil {
+		if item.EventType == event.MeetingCreatedV2 {
+			var versioned event.MeetingCreatedV2Payload
+			if err := decodePayload(item, &versioned); err != nil {
+				return err
+			}
+			if versioned.ProtocolVersion != 2 {
+				return &Error{Code: "store_corrupt", Detail: fmt.Sprintf("event %s has invalid Meeting protocol", item.EventID)}
+			}
+			payload = versioned.MeetingCreatedPayload
+		} else if err := decodePayload(item, &payload); err != nil {
 			return err
 		}
 		meetingID = payload.MeetingID
@@ -230,14 +240,26 @@ func validateMeetingEventPayload(item event.Envelope) error {
 			payload.MaxRounds != defaultMeetingMaxRounds || payload.Cycle != 1 || payload.CurrentRound != 0 {
 			return &Error{Code: "store_corrupt", Detail: fmt.Sprintf("event %s has inconsistent Meeting creation", item.EventID)}
 		}
-	case event.ParticipantAdded:
+	case event.ParticipantAdded, event.ParticipantAddedV2:
 		var payload event.MeetingParticipantAddedPayload
-		if err := decodePayload(item, &payload); err != nil {
+		if item.EventType == event.ParticipantAddedV2 {
+			var versioned event.MeetingParticipantAddedV2Payload
+			if err := decodePayload(item, &versioned); err != nil {
+				return err
+			}
+			payload = versioned.MeetingParticipantAddedPayload
+			for key := range versioned.ProviderOptions {
+				if (payload.Provider == "codex" && key != "reasoning_effort") ||
+					(payload.Provider == "opencode" && key != "variant") {
+					return &Error{Code: "store_corrupt", Detail: fmt.Sprintf("event %s has unsupported Provider option", item.EventID)}
+				}
+			}
+		} else if err := decodePayload(item, &payload); err != nil {
 			return err
 		}
 		meetingID = payload.MeetingID
 		if payload.ParticipantID != item.AggregateID || !event.ValidID(payload.ParticipantID) || len(item.Artifacts) != 0 ||
-			!validMeetingRole(payload.Role) || payload.Seat != payload.Role ||
+			!validMeetingRole(payload.Role) || strings.TrimSpace(payload.Seat) == "" ||
 			(payload.Provider != "codex" && payload.Provider != "opencode") || payload.Status != "pending" {
 			return &Error{Code: "store_corrupt", Detail: fmt.Sprintf("event %s has inconsistent Meeting participant", item.EventID)}
 		}
@@ -304,6 +326,31 @@ func validateMeetingEventPayload(item event.Envelope) error {
 			(payload.Status != "selected" && payload.Status != "rejected" && payload.Status != "deferred") {
 			return &Error{Code: "store_corrupt", Detail: fmt.Sprintf("event %s has inconsistent Candidate disposition", item.EventID)}
 		}
+	case event.MeetingReviewed:
+		var payload event.MeetingReviewedPayload
+		if err := decodePayload(item, &payload); err != nil {
+			return err
+		}
+		meetingID = payload.MeetingID
+		if item.AggregateID != meetingID || !event.ValidID(payload.ResultContentID) ||
+			(payload.ResultAction != "approve" && payload.ResultAction != "continue") || len(payload.Items) == 0 {
+			return &Error{Code: "store_corrupt", Detail: fmt.Sprintf("event %s has inconsistent Meeting review", item.EventID)}
+		}
+		for _, review := range payload.Items {
+			if !event.ValidID(review.CandidateID) || !validDesignDisposition(review.DesignDisposition) ||
+				!validContextDisposition(review.DesignDisposition, review.ContextDisposition) {
+				return &Error{Code: "store_corrupt", Detail: fmt.Sprintf("event %s has invalid review item", item.EventID)}
+			}
+		}
+	case event.MeetingResultApproved:
+		var payload event.MeetingResultApprovedPayload
+		if err := decodePayload(item, &payload); err != nil {
+			return err
+		}
+		meetingID = payload.MeetingID
+		if item.AggregateID != meetingID || !event.ValidID(payload.ResultContentID) || len(payload.ResultDigest) != 64 {
+			return &Error{Code: "store_corrupt", Detail: fmt.Sprintf("event %s has inconsistent approved result", item.EventID)}
+		}
 	default:
 		return &Error{Code: "unknown_event_version", Detail: fmt.Sprintf("unsupported event type %s", item.EventType)}
 	}
@@ -321,7 +368,7 @@ func validMeetingRole(value string) bool {
 
 func validMeetingStatus(value string) bool {
 	switch value {
-	case "draft", "preparing", "sealed_proposals", "revealed", "deliberating", "recording", "verifying", "awaiting_human", "needs_user_input", "concluded", "failed":
+	case "draft", "preparing", "sealed_proposals", "revealed", "deliberating", "recording", "verifying", "awaiting_human", "needs_user_input", "concluded", "failed", "awaiting_user_review", "recorder_reviewing", "reconvening":
 		return true
 	default:
 		return false
@@ -329,7 +376,7 @@ func validMeetingStatus(value string) bool {
 }
 
 func validRunPhase(value string) bool {
-	return value == "proposal" || value == "deliberation" || value == "recording" || value == "verifying"
+	return value == "proposal" || value == "deliberation" || value == "recording" || value == "verifying" || value == "recorder_review"
 }
 
 func validRunStatus(value string) bool {
@@ -337,7 +384,24 @@ func validRunStatus(value string) bool {
 }
 
 func validContentKind(value string) bool {
-	return value == "proposal" || value == "position" || value == "human_input" || value == "synthesis" || value == "verification"
+	switch value {
+	case "proposal", "position", "human_input", "synthesis", "verification",
+		"meeting_result", "review_comment", "recorder_answer", "recorder_patch", "recorder_opening", "coding_handoff":
+		return true
+	default:
+		return false
+	}
+}
+
+func validDesignDisposition(value string) bool {
+	return value == "accepted" || value == "rejected" || value == "deferred" || value == "unreviewed"
+}
+
+func validContextDisposition(design, context string) bool {
+	if context != "persist" && context != "result_only" && context != "none" {
+		return false
+	}
+	return context != "persist" || design == "accepted"
 }
 
 func validateBindingEvent(item event.Envelope, payloadProjectID string) error {

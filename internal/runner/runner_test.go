@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 )
 
@@ -40,14 +41,17 @@ echo '{"type":"step_finish","sessionID":"opencode-session","part":{"reason":"sto
 		name    string
 		backend Backend
 		session string
+		options map[string]string
+		option  string
 	}{
-		{name: "codex", backend: Codex{}, session: "codex-session"},
-		{name: "opencode", backend: OpenCode{}, session: "opencode-session"},
+		{name: "codex", backend: Codex{}, session: "codex-session", options: map[string]string{"reasoning_effort": "high"}, option: `model_reasoning_effort="high"`},
+		{name: "opencode", backend: OpenCode{}, session: "opencode-session", options: map[string]string{"variant": "high"}, option: "high"},
 	} {
 		t.Run(item.name, func(t *testing.T) {
 			var pinned string
 			result, err := item.backend.Execute(context.Background(), Request{
-				Provider: item.name, Prompt: "test", Workdir: workdir, OutputDir: output,
+				Provider: item.name, Model: "test-model", Options: item.options,
+				Prompt: "test", Workdir: workdir, OutputDir: output,
 				PinSession: func(sessionID string) error { pinned = sessionID; return nil },
 			}, func(Delta) {})
 			if err != nil {
@@ -55,6 +59,9 @@ echo '{"type":"step_finish","sessionID":"opencode-session","part":{"reason":"sto
 			}
 			if result.SessionID != item.session || pinned != item.session || result.Output != `{"ok":true}` {
 				t.Fatalf("%s result = %#v", item.name, result)
+			}
+			if !slices.Contains(result.Command, "test-model") || !slices.Contains(result.Command, item.option) {
+				t.Fatalf("%s command lacks model/options: %v", item.name, result.Command)
 			}
 		})
 	}

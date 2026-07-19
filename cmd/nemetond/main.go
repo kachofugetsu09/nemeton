@@ -15,6 +15,7 @@ import (
 func main() {
 	flags := flag.NewFlagSet("nemetond", flag.ExitOnError)
 	dataDir := flags.String("data-dir", "", "absolute Nemeton data directory")
+	webAddress := flags.String("web-address", "", "loopback address for the local Web UI")
 	flags.Parse(os.Args[1:])
 	if flags.NArg() != 0 {
 		fmt.Fprintln(os.Stderr, "usage: nemetond [--data-dir PATH]")
@@ -24,6 +25,9 @@ func main() {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
+	}
+	if *webAddress != "" {
+		configuration.WebAddress = *webAddress
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

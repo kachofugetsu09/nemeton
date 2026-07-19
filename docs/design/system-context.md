@@ -2,7 +2,7 @@
 
 > 文档状态：Current repository facts + Accepted product design
 >
-> 核对日期：2026-07-19
+> 核对日期：2026-07-20
 
 本文把当前仓库能够证明的事实，与尚未实现但已经 Accepted 的产品设计分开。详细领域模型继续以 `projectneed.md` 和两份 Spark 设计为准。
 
@@ -11,7 +11,7 @@
 - 源码仓库位于 `/mnt/data/coding/nemeton`。
 - 初始基线为 `53fc381cc9f4f76a7844ff964bd3fc86f175dff8`，分支为 `main`。
 - Git remote `origin` 为 `git@github.com:kachofugetsu09/nemeton.git`。
-- 初始基线只有 README 和文档。当前仓库已经实现 Go module、SQLite event/projection、Project Reality、持久化 Swarm Meeting、Codex/OpenCode Runner、隔离 Workdir、HTTP/WebSocket、CLI、真实测试和 Linux/macOS CI；仍没有 Docker、Web UI 或常驻安装服务。
+- 初始基线只有 README 和文档。当前仓库已经实现 Go module、SQLite event/projection、Project Reality、持久化 Swarm Meeting、Codex/OpenCode Runner、隔离 Workdir、HTTP/WebSocket、CLI、Local Web UI、真实测试和 Linux/macOS CI；只有交付认证 Dockerfile，不提供 Docker 运行形态或常驻安装服务。
 - `.codegraph/` 不存在；是否建立索引由用户决定。
 
 这些事实描述初始化时点，不是长期产品要求。以后判断当前实现必须重新读取 Git、文件和运行证据。
@@ -33,7 +33,7 @@ v1 已确认：
 
 ```text
                     ┌───────────────────────┐
-CLI / future UI ───►│       nemetond        │◄── Agent / Model Runner
+CLI / Local Web UI ─►│       nemetond        │◄── Agent / Model Runner
                     │ command + state owner │
                     └───────┬───────┬───────┘
                             │       │
@@ -53,15 +53,15 @@ CLI / future UI ───►│       nemetond        │◄── Agent / Model
     / future Trust                code + future active .nemeton/
 ```
 
-图中的 CLI、daemon、SQLite event/projection、artifact store、只读 target Git、Meeting、
-Codex/OpenCode Runner、数据库 Current State 和 WebSocket 已在 Milestone 0/1 实现；Web UI、
-Campaign/Task 执行、产品 Gate、Trust State 和 `.nemeton/` 发布仍是 Accepted design。
+图中的 CLI、Local Web UI、daemon、SQLite event/projection、artifact store、只读 target Git、Meeting、
+Codex/OpenCode Runner、Approved Context、Handoff、数据库 Current State 和 WebSocket 已在 Milestone 0/1
+实现；Campaign/Task 执行、产品 Gate、Trust State 和 `.nemeton/` 发布仍是 Accepted design。
 
 ## 4. Capability 与状态 owner
 
 | 能力或状态 | Owner | 消费者 | 权威边界 |
 | --- | --- | --- | --- |
-| 领域 command、状态机与事务 | `nemetond` 内的领域服务 | CLI、future UI、Agent Runner | 客户端不能复制状态机或绕过 daemon 写库 |
+| 领域 command、状态机与事务 | `nemetond` 内的领域服务 | CLI、Local Web UI、Agent Runner | 客户端不能复制状态机或绕过 daemon 写库 |
 | 语义历史 | append-only domain event stream | reducer、projector、审计与 replay | 事件和 artifact refs 是长期事实；current table 不是第二真源 |
 | 大正文与证据 | content-addressed artifact store | event、Gate、会议和恢复 | digest 校验失败必须使证据失效 |
 | 当前关系视图 | SQLite projections | API、UI、调度器 | 由 reducer 生成，可重建但不能任意删除 |

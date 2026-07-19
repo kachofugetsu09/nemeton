@@ -44,6 +44,38 @@ Return one JSON object and no prose outside it:
 `, meeting.Brief, materials)
 }
 
+func recorderV2Prompt(meeting store.Meeting, materials string) string {
+	return fmt.Sprintf(`You are the sole Recorder for a Nemeton protocol v2 meeting. You watched the complete meeting and share the user's original purpose and repository context. Produce the complete, self-contained design that a later coding agent can consume. Preserve dissent and unknowns instead of inventing consensus. Every candidate must cite durable material IDs supplied below.
+
+Original question: %s
+Meeting title: %s
+Current cycle: %d
+Durable materials JSON: %s
+
+Return one JSON object and no prose outside it:
+{"synthesis":"complete self-contained design including decisions, boundaries, flow, failure behavior, migration and acceptance","candidates":[{"kind":"decision|acceptance|boundary|invariant|risk|unknown","statement":"one atomic semantic item","rationale":"source-grounded reason","source_refs":["material-id"]}]}
+`, meeting.Brief, meeting.Title, meeting.Cycle, materials)
+}
+
+func recorderReviewPrompt(meeting store.Meeting, materials string) string {
+	return fmt.Sprintf(`You are the sole Recorder continuing the same Nemeton meeting. You saw the original question, every cycle, the current full Result, structured user dispositions, optional user prose, and approved project context. Decide the smallest correct next action yourself; the user's prose does not name the action.
+
+Choose:
+- answer: the design is unchanged and the user only needs a factual clarification.
+- patch: the issue is local and does not change a core owner, boundary, invariant, failure model, or accepted constraint. Emit a full self-contained replacement Result, not only a diff.
+- reconvene: the issue changes or challenges a core owner, boundary, invariant, failure model, or needs the original Swarm's judgment. Emit the opening for the next cycle. The next cycle uses the exact same roster, Provider, model, options, workdir and sessions.
+
+Persisted accepted context is locked and must not be modified. Rejected items must not be silently reintroduced.
+Original question: %s
+Meeting title: %s
+Current cycle: %d
+Durable materials JSON: %s
+
+Return one JSON object and no prose outside it. Always include every key; use empty strings or [] for inactive fields:
+{"action":"answer|patch|reconvene","response":"direct answer when action=answer","opening":"next-cycle opening when action=reconvene","synthesis":"complete replacement Result when action=patch","candidates":[{"kind":"decision|acceptance|boundary|invariant|risk|unknown","statement":"atomic semantic item","rationale":"source-grounded reason","source_refs":["durable-material-id"]}]}
+`, meeting.Brief, meeting.Title, meeting.Cycle, materials)
+}
+
 func verifierPrompt(meeting store.Meeting, materials string) string {
 	return fmt.Sprintf(`You are the Verifier in a Nemeton design meeting. Check facts, hard constraints, source traceability, combination consistency, and executable acceptance. Do not rewrite the synthesis and do not add a fourth design.
 

@@ -15,6 +15,7 @@ type Config struct {
 	ArtifactRoot  string
 	BackupRoot    string
 	WorktreesRoot string
+	WebAddress    string
 }
 
 // Resolve validates platform paths and returns the complete runtime configuration.
@@ -39,6 +40,10 @@ func Resolve(dataDir string) (Config, error) {
 	}
 
 	// 3. Derive every owned path from the validated roots.
+	webAddress := os.Getenv("NEMETON_WEB_ADDRESS")
+	if webAddress == "" {
+		webAddress = "127.0.0.1:7373"
+	}
 	return Config{
 		DataDir:       resolved,
 		DatabasePath:  filepath.Join(resolved, "nemeton.db"),
@@ -47,6 +52,7 @@ func Resolve(dataDir string) (Config, error) {
 		ArtifactRoot:  filepath.Join(resolved, "artifacts"),
 		BackupRoot:    filepath.Join(resolved, "backups"),
 		WorktreesRoot: worktrees,
+		WebAddress:    webAddress,
 	}, nil
 }
 

@@ -1,0 +1,5 @@
+{
+  "user_feedback": "我有一个疑问：浏览器重连时，最后 committed sequence 到底由谁拥有，为什么不会和 daemon 的 projection 分叉？",
+  "expected_action": "answer",
+  "invariant": "The current Result content ID and digest do not change."
+}

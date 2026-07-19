@@ -17,6 +17,9 @@ func (OpenCode) Execute(ctx context.Context, request Request, emit func(Delta)) 
 	if request.Model != "" {
 		args = append(args, "--model", request.Model)
 	}
+	if variant := request.Options["variant"]; variant != "" {
+		args = append(args, "--variant", variant)
+	}
 	if request.SessionID != "" {
 		args = append(args, "--session", request.SessionID)
 	}
