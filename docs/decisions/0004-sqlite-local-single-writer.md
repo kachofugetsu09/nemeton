@@ -5,6 +5,8 @@
 > 日期：2026-07-19
 >
 > 决策者：Human
+>
+> 修订：Decision 0009 将产品 `NOW.md` projector 改为 SQLite Current State，并将 SSE 改为 WebSocket；仓库 `docs/NOW.md` 仍由交付者串行维护。
 
 ## 决定
 
@@ -28,7 +30,7 @@ Nemeton v1 使用本机 SQLite。`nemetond` 是唯一逻辑写入者，Agent、C
 
 单个 Project 的事实形成过程需要稳定顺序。PostgreSQL 可以同时提交更多写事务，这种数据库行为不能自动解决两个决定之间的语义冲突；Nemeton 仍然需要 revision、领域不变量、Conflict 和 human activation。SQLite 的单写事务与这条有序语义流一致。
 
-`NOW.md` 禁止多个 Agent 编辑。projector 从事件流生成临时文件，完成校验后原子替换正式文件。
+产品 Current State 由事件流在 SQLite 内确定性生成。Agent 不能绕过 daemon 修改投影；仓库 `docs/NOW.md` 由交付者串行维护。
 
 ## PostgreSQL 迁移条件
 
@@ -53,6 +55,6 @@ Agent 数量增加本身不触发迁移。执行吞吐和持久化写入是两�
 
 - Agent 进程无法绕过 daemon 获得写入权。
 - 并发提交基于同一旧 revision 时，至少一个 command 明确冲突或按最新状态再次校验。
-- 长时间 UI/SSE 连接不持有数据库 read transaction。
+- 长时间 UI/WebSocket 连接不持有数据库 read transaction。
 - daemon 崩溃后 SQLite integrity、事件尾部和投影进度可以对账。
-- `NOW.md` 更新失败不会回滚已经提交的事件，系统会保留等待再次生成的状态。
+- Current State projection 与事件追加同事务提交；失败必须整体回滚。

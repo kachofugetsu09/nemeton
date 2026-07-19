@@ -38,7 +38,10 @@ AGENTS.md
 | [`design/system-context.md`](design/system-context.md) | 区分当前仓库事实与已接受的未来系统边界 | Current |
 | [`design/persistence-state-map.md`](design/persistence-state-map.md) | 记录持久化 owner、增减、重建和恢复语义 | Accepted design map |
 | [`design/milestone-0-foundation.md`](design/milestone-0-foundation.md) | 固定 Project Reality、事件、daemon、replay 与验收设计 | Accepted |
+| [`design/milestone-1a-meeting-backend.md`](design/milestone-1a-meeting-backend.md) | 固定持久 Meeting、Runner、Workdir、收敛、WebSocket 与验收设计 | Accepted |
+| [`design/milestone-1-live-provider-certification.md`](design/milestone-1-live-provider-certification.md) | 记录一次性真实 Codex/OpenCode 认证与最终代码无模型 replay 证据 | Delivery evidence |
 | [`contracts/2026-07-19-milestone-0.md`](contracts/2026-07-19-milestone-0.md) | 固定 Milestone 0 实现范围、副作用、验证和交付授权 | Approved |
+| [`contracts/2026-07-19-milestone-1a.md`](contracts/2026-07-19-milestone-1a.md) | 固定 Milestone 1A 后端范围、副作用、验证和交付授权 | Approved |
 | [`spark/2026-07-19-nemeton-v1-design.md`](spark/2026-07-19-nemeton-v1-design.md) | v1 模块、状态机、API、存储和自举设计 | Approved input |
 | [`spark/2026-07-19-nemeton-swarm-meeting-design.md`](spark/2026-07-19-nemeton-swarm-meeting-design.md) | Swarm 会议时序、讨论、收敛和扩展设计 | Approved input |
 | [`research/2026-07-19-public-multi-agent-designs.md`](research/2026-07-19-public-multi-agent-designs.md) | 公开多 Agent 系统的研究快照 | Evidence |
@@ -55,6 +58,7 @@ AGENTS.md
 | [`0006`](decisions/0006-go-modular-monolith.md) | v1 使用 Go 模块化单体和系统 Git | Accepted |
 | [`0007`](decisions/0007-project-workbook-is-shared-reality.md) | 项目工作手册是 Agent 协作的共享现实 | Accepted |
 | [`0008`](decisions/0008-semantic-ci-gate.md) | 原子语义与跨组件联合语义由 CI Hard Gate 保护 | Accepted |
+| [`0009`](decisions/0009-milestone-1-meeting-runtime.md) | Meeting 使用持久化 Coding Agent Workdir 与 WebSocket | Accepted |
 
 ## 4. 按任务类型阅读
 
@@ -69,17 +73,18 @@ AGENTS.md
 
 ## 5. 当前阅读路径
 
-Milestone 0 的实现者只需依次读取：
+接手 Milestone 0/1 当前实现时依次读取：
 
 ```text
 docs/NOW.md
   -> decisions/0003-semantic-event-source-and-replay.md
   -> decisions/0004-sqlite-local-single-writer.md
-  -> projectneed.md 的 Project / Reality / Replay 部分
-  -> v1 design 的 Milestone 0
+  -> decisions/0009-milestone-1-meeting-runtime.md
+  -> design/milestone-1a-meeting-backend.md
+  -> 对应真实代码、migration 和 semantic-gate
 ```
 
-会议实现者还要读取 Swarm Meeting 详细设计和公开研究材料。并行执行实现者还要读取 Worktree、Campaign、Gate 和 Trust State 章节。
+后续 Web UI 实现者还要读取 HTTP/WebSocket 边界和真实 API。Milestone 2 并行执行实现者还要读取 Worktree、Campaign、Gate 和 Trust State 章节。
 
 ## 6. 工作手册文件树
 
@@ -93,13 +98,16 @@ docs/
 ├── writing-rules.md
 ├── decisions/
 │   ├── README.md
-│   └── 0001–0008
+│   └── 0001–0009
 ├── design/
 │   ├── system-context.md
 │   ├── persistence-state-map.md
-│   └── milestone-0-foundation.md
+│   ├── milestone-0-foundation.md
+│   ├── milestone-1a-meeting-backend.md
+│   └── milestone-1-live-provider-certification.md
 ├── contracts/
-│   └── 2026-07-19-milestone-0.md
+│   ├── 2026-07-19-milestone-0.md
+│   └── 2026-07-19-milestone-1a.md
 ├── templates/
 │   ├── agent-task-contract.md
 │   ├── context-handoff.yaml

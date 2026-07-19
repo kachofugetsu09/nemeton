@@ -18,6 +18,11 @@ func TestOpenBacksUpExistingDatabaseBeforeMigration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open legacy database: %v", err)
 	}
+	var journalMode string
+	if err := legacy.QueryRow(`PRAGMA journal_mode=WAL`).Scan(&journalMode); err != nil || journalMode != "wal" {
+		legacy.Close()
+		t.Fatalf("enable legacy WAL mode: mode=%q err=%v", journalMode, err)
+	}
 	if _, err := legacy.Exec(`CREATE TABLE legacy_marker(value TEXT NOT NULL); INSERT INTO legacy_marker(value) VALUES ('preserve-me')`); err != nil {
 		legacy.Close()
 		t.Fatalf("create legacy database: %v", err)
@@ -47,6 +52,11 @@ func TestOpenBacksUpExistingDatabaseBeforeMigration(t *testing.T) {
 	}
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("migration backup permissions = %04o, want 0600", info.Mode().Perm())
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(backups[0] + suffix); !os.IsNotExist(err) {
+			t.Fatalf("migration backup retained %s sidecar: %v", suffix, err)
+		}
 	}
 
 	// 3. The backup must contain the exact pre-migration content.

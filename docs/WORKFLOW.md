@@ -4,9 +4,9 @@
 
 ## 0. 当前仓库能力边界
 
-当前仓库已经实现 Milestone 0 的 Go 模块、SQLite 事件内核、Project Reality、artifact、replay、CLI/daemon、真实验收测试和仓库级 CI Hard Gate。唯一验证入口是 `scripts/semantic-gate`；GitHub 上稳定的 required check 名称是 `semantic-gate`。
+当前仓库已经实现 Milestone 0 基线以及 Milestone 1 的持久化 Swarm Meeting 后端：Reality Bundle、每席位隔离 Workdir、Codex/OpenCode Runner、三轮有界收敛、Recorder、Verifier、Candidate disposition、数据库 Current State、HTTP/WebSocket、CLI、replay 与恢复。唯一仓库级验证入口是 `scripts/semantic-gate`；GitHub 上稳定的 required check 名称是 `semantic-gate`。
 
-仓库级 Gate 只保护当前实现的原子事务与跨组件联合语义，不等于本文后半部分 Accepted 产品设计中的 Contract、Task、Integration 或 Release Gate 引擎。当前仓库仍没有 Docker，也没有 Meeting、Campaign、Agent Runner 或产品 projector。
+仓库级 Gate 保护 Milestone 0 与 Milestone 1 已实现的原子事务和跨组件联合语义，不等于本文后半部分 Accepted 产品设计中的 Contract、Task、Integration 或 Release Gate 引擎。当前仓库仍没有 Docker、Campaign、Task 执行、产品 Gate 引擎或 Web UI。数据库 Current State 是产品投影；`docs/NOW.md` 仍是人工维护的仓库工作手册。
 
 在 Nemeton 能自举管理自身以前，仓库变更通过 Babel 工作流执行；不能用未来产品能力伪装当前验证已经完成。
 
@@ -38,7 +38,7 @@ Read → Ownership → Isolate → Contract → Implement → Verify → Review 
 
 ### A.6 Verify
 
-运行与改动直接相关、当前仓库真实存在的最小验证。Milestone 0 的完整验证统一运行 `scripts/semantic-gate`，它检查格式、diff、vet、race 测试和两个命令入口的构建。记录命令、target SHA 或 diff、退出状态和未验证项；不能发明命令。
+运行与改动直接相关、当前仓库真实存在的最小验证。Milestone 0/1 的完整验证统一运行 `scripts/semantic-gate`，它检查格式、diff、vet、race 测试和两个命令入口的构建。记录命令、target SHA 或 diff、退出状态和未验证项；不能发明命令。
 
 ### A.7 Review
 
@@ -143,10 +143,11 @@ Release Gate（按风险启用）
 - 实现错误：在原政策范围内生成修复任务。
 - 出现新产品语义：暂停 Campaign，创建会议议题。
 
-### B.7 文档同步
+### B.7 当前状态同步
 
 - Accepted Decision 的变化需要同步到 `projectneed.md`。
 - 当前实施切片的变化需要同步到 `NOW.md`。
 - 详细状态机或协议的变化需要同步到对应 `docs/spark/` 文档。
 - 研究材料只追加证据，不能改变产品事实。
-- projector 完成后，`NOW.md` 和其他当前状态文档由事件流生成，人工或 Agent 不再修改这些文件。
+- 产品 Current State 由数据库事件流投影，不能通过编辑仓库文档改变。
+- `docs/NOW.md` 继续作为 Nemeton 仓库自身的工作手册，由每次交付串行维护。

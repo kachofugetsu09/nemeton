@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/kachofugetsu09/nemeton/internal/api"
 	"github.com/kachofugetsu09/nemeton/internal/config"
@@ -40,10 +41,216 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return projectRelink(ctx, args[2:], stdout, stderr)
 	case "project replay":
 		return projectReplay(ctx, args[2:], stdout, stderr)
+	case "project state":
+		return projectState(ctx, args[2:], stdout, stderr)
+	case "meeting create":
+		return meetingCreate(ctx, args[2:], stdout, stderr)
+	case "meeting show":
+		return meetingShow(ctx, args[2:], stdout, stderr)
+	case "meeting start":
+		return meetingStart(ctx, args[2:], stdout, stderr)
+	case "meeting run":
+		return meetingRun(ctx, args[2:], stdout, stderr)
+	case "meeting watch":
+		return meetingWatch(ctx, args[2:], stdout, stderr)
+	case "meeting answer":
+		return meetingAnswer(ctx, args[2:], stdout, stderr)
+	case "meeting ratify":
+		return meetingRatify(ctx, args[2:], stdout, stderr)
 	default:
 		printUsage(stderr)
 		return 2
 	}
+}
+
+func projectState(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags, dataDir, jsonOutput, ok := commonFlags("project state", args, stderr)
+	if !ok || flags.NArg() != 1 {
+		return 2
+	}
+	configuration, err := config.Resolve(*dataDir)
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	response, err := api.NewClient(configuration.SocketPath).CurrentState(ctx, flags.Arg(0))
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	if *jsonOutput {
+		return printJSON(stdout, stderr, response)
+	}
+	fmt.Fprintf(stdout, "Project: %s\nSequence: %d\nDigest: %s\nMeetings: %d\nCandidates: %d\n",
+		response.CurrentState.ProjectID, response.CurrentState.ProjectedThroughSequence,
+		response.CurrentState.ResultDigest, len(response.CurrentState.Meetings),
+		len(response.CurrentState.Candidates))
+	return 0
+}
+
+func meetingCreate(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("meeting create", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	dataDir := flags.String("data-dir", "", "absolute Nemeton data directory")
+	title := flags.String("title", "", "Meeting title")
+	brief := flags.String("brief", "", "Meeting brief")
+	kind := flags.String("kind", "change", "Meeting kind: change or project")
+	jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+	if err := flags.Parse(interspersedArgs(args, "data-dir", "title", "brief", "kind")); err != nil || flags.NArg() != 1 {
+		return 2
+	}
+	configuration, err := config.Resolve(*dataDir)
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	response, err := api.NewClient(configuration.SocketPath).CreateMeeting(ctx, flags.Arg(0), api.CreateMeetingRequest{
+		Kind: *kind, Title: *title, Brief: *brief})
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	return printMeeting(stdout, stderr, *jsonOutput, response)
+}
+
+func meetingShow(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags, dataDir, jsonOutput, ok := commonFlags("meeting show", args, stderr)
+	if !ok || flags.NArg() != 1 {
+		return 2
+	}
+	configuration, err := config.Resolve(*dataDir)
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	response, err := api.NewClient(configuration.SocketPath).InspectMeeting(ctx, flags.Arg(0))
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	return printMeeting(stdout, stderr, *jsonOutput, response)
+}
+
+func meetingStart(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags, dataDir, jsonOutput, ok := commonFlags("meeting start", args, stderr)
+	if !ok || flags.NArg() != 1 {
+		return 2
+	}
+	configuration, err := config.Resolve(*dataDir)
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	response, err := api.NewClient(configuration.SocketPath).StartMeeting(ctx, flags.Arg(0))
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	return printMeeting(stdout, stderr, *jsonOutput, response)
+}
+
+func meetingRun(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("meeting run", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	dataDir := flags.String("data-dir", "", "absolute Nemeton data directory")
+	wait := flags.Bool("wait", false, "wait for a terminal or Human-input state")
+	jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+	if err := flags.Parse(interspersedArgs(args, "data-dir")); err != nil || flags.NArg() != 1 {
+		return 2
+	}
+	configuration, err := config.Resolve(*dataDir)
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	client := api.NewClient(configuration.SocketPath)
+	response, err := client.StartMeeting(ctx, flags.Arg(0))
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	if !*wait {
+		return printMeeting(stdout, stderr, *jsonOutput, response)
+	}
+	for {
+		if terminalMeetingStatus(response.Meeting.Meeting.Status) {
+			return printMeeting(stdout, stderr, *jsonOutput, response)
+		}
+		select {
+		case <-ctx.Done():
+			return printFailure(stderr, *jsonOutput, ctx.Err())
+		case <-time.After(500 * time.Millisecond):
+		}
+		response, err = client.InspectMeeting(ctx, flags.Arg(0))
+		if err != nil {
+			return printFailure(stderr, *jsonOutput, err)
+		}
+	}
+}
+
+func meetingWatch(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("meeting watch", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	dataDir := flags.String("data-dir", "", "absolute Nemeton data directory")
+	after := flags.Int64("after-sequence", 0, "resume after committed sequence")
+	if err := flags.Parse(interspersedArgs(args, "data-dir", "after-sequence")); err != nil || flags.NArg() != 1 {
+		return 2
+	}
+	configuration, err := config.Resolve(*dataDir)
+	if err != nil {
+		return printFailure(stderr, false, err)
+	}
+	connection, err := api.NewClient(configuration.SocketPath).WatchMeeting(ctx, flags.Arg(0), *after)
+	if err != nil {
+		return printFailure(stderr, false, err)
+	}
+	defer connection.Close()
+	encoder := json.NewEncoder(stdout)
+	for {
+		message, err := api.ReadWatchMessage(connection)
+		if err != nil {
+			if ctx.Err() != nil {
+				return 0
+			}
+			return printFailure(stderr, false, err)
+		}
+		if err := encoder.Encode(message); err != nil {
+			return printFailure(stderr, false, err)
+		}
+	}
+}
+
+func meetingAnswer(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("meeting answer", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	dataDir := flags.String("data-dir", "", "absolute Nemeton data directory")
+	content := flags.String("content", "", "Human input")
+	jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+	if err := flags.Parse(interspersedArgs(args, "data-dir", "content")); err != nil || flags.NArg() != 1 {
+		return 2
+	}
+	configuration, err := config.Resolve(*dataDir)
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	response, err := api.NewClient(configuration.SocketPath).AnswerMeeting(ctx, flags.Arg(0), api.HumanInputRequest{Content: *content})
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	return printMeeting(stdout, stderr, *jsonOutput, response)
+}
+
+func meetingRatify(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("meeting ratify", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	dataDir := flags.String("data-dir", "", "absolute Nemeton data directory")
+	candidate := flags.String("candidate", "", "Candidate ID")
+	disposition := flags.String("disposition", "", "selected, rejected, or deferred")
+	reason := flags.String("reason", "", "Human reason")
+	jsonOutput := flags.Bool("json", false, "print machine-readable JSON")
+	if err := flags.Parse(interspersedArgs(args, "data-dir", "candidate", "disposition", "reason")); err != nil || flags.NArg() != 1 {
+		return 2
+	}
+	configuration, err := config.Resolve(*dataDir)
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	response, err := api.NewClient(configuration.SocketPath).RatifyMeeting(ctx, flags.Arg(0), api.RatificationRequest{
+		CandidateID: *candidate, Disposition: *disposition, Reason: *reason})
+	if err != nil {
+		return printFailure(stderr, *jsonOutput, err)
+	}
+	return printMeeting(stdout, stderr, *jsonOutput, response)
 }
 
 func daemonStart(args []string, stderr io.Writer) int {
@@ -188,6 +395,24 @@ func printProject(stdout, stderr io.Writer, jsonOutput bool, response api.Projec
 	return 0
 }
 
+func printMeeting(stdout, stderr io.Writer, jsonOutput bool, response api.MeetingResponse) int {
+	if jsonOutput {
+		return printJSON(stdout, stderr, response)
+	}
+	meeting := response.Meeting.Meeting
+	fmt.Fprintf(stdout, "Meeting: %s\nStatus: %s\nRound: %d/%d\nCandidates: %d\n",
+		meeting.ID, meeting.Status, meeting.CurrentRound, meeting.MaxRounds,
+		len(response.Meeting.Candidates))
+	if meeting.HumanQuestion != "" {
+		fmt.Fprintf(stdout, "Needs input: %s\n", meeting.HumanQuestion)
+	}
+	return 0
+}
+
+func terminalMeetingStatus(status string) bool {
+	return status == "awaiting_human" || status == "needs_user_input" || status == "concluded" || status == "failed"
+}
+
 func printFailure(stderr io.Writer, jsonOutput bool, err error) int {
 	if jsonOutput {
 		var problem *api.Problem
@@ -212,7 +437,7 @@ func printJSON(output, stderr io.Writer, value any) int {
 }
 
 func printUsage(output io.Writer) {
-	fmt.Fprintln(output, "usage: nemeton <daemon start|daemon status|project open|project inspect|project relink|project replay> [options]")
+	fmt.Fprintln(output, "usage: nemeton <daemon start|daemon status|project open|project inspect|project relink|project replay|project state|meeting create|meeting show|meeting start|meeting run|meeting watch|meeting answer|meeting ratify> [options]")
 }
 
 func interspersedArgs(args []string, valueFlags ...string) []string {

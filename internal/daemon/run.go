@@ -13,7 +13,10 @@ import (
 	"github.com/kachofugetsu09/nemeton/internal/artifact"
 	"github.com/kachofugetsu09/nemeton/internal/config"
 	"github.com/kachofugetsu09/nemeton/internal/gitrepo"
+	"github.com/kachofugetsu09/nemeton/internal/meeting"
 	"github.com/kachofugetsu09/nemeton/internal/project"
+	"github.com/kachofugetsu09/nemeton/internal/realtime"
+	"github.com/kachofugetsu09/nemeton/internal/runner"
 	"github.com/kachofugetsu09/nemeton/internal/store"
 )
 
@@ -41,12 +44,25 @@ func Run(ctx context.Context, configuration config.Config) error {
 	}
 	defer database.Close()
 	artifacts := artifact.New(configuration.ArtifactRoot)
-	service := project.NewService(database, artifacts, configuration.WorktreesRoot)
-	reconcile, err := service.Reconcile(ctx)
+	projectService := project.NewService(database, artifacts, configuration.WorktreesRoot)
+	reconcile, err := projectService.Reconcile(ctx)
 	if err != nil {
 		return err
 	}
 	state := api.NewRuntimeState(reconcile)
+	hub := realtime.NewHub()
+	meetingService := meeting.NewService(database, artifacts, runner.Production(),
+		configuration.WorktreesRoot, hub)
+	coordinator := meeting.NewCoordinator(meetingService)
+	meetingService.SetScheduler(coordinator)
+	go coordinator.Run(ctx)
+	resumable, err := meetingService.Resumable(ctx)
+	if err != nil {
+		return err
+	}
+	for _, meetingID := range resumable {
+		coordinator.Enqueue(meetingID)
+	}
 
 	// 3. Serve the single Unix Socket until graceful cancellation.
 	listener, err := net.Listen("unix", configuration.SocketPath)
@@ -59,7 +75,7 @@ func Run(ctx context.Context, configuration config.Config) error {
 		return fmt.Errorf("set Unix Socket permissions: %w", err)
 	}
 	server := &http.Server{
-		Handler:           api.NewServer(service, state, configuration.DataDir, configuration.WorktreesRoot).Handler(),
+		Handler:           api.NewServer(projectService, meetingService, hub, state, configuration.DataDir, configuration.WorktreesRoot).Handler(),
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       30 * time.Second,
 	}

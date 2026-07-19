@@ -78,6 +78,25 @@ func (s Store) Put(data []byte, mediaType string) (Record, error) {
 	return Record{Digest: digest, MediaType: mediaType, ByteSize: int64(len(data)), StorageURI: relative}, nil
 }
 
+func (s Store) Read(digest string) ([]byte, error) {
+	if len(digest) != sha256.Size*2 {
+		return nil, fmt.Errorf("invalid artifact digest length: %q", digest)
+	}
+	if _, err := hex.DecodeString(digest); err != nil || strings.ToLower(digest) != digest {
+		return nil, fmt.Errorf("invalid artifact digest: %q", digest)
+	}
+	path := filepath.Join(s.root, "sha256", digest[:2], digest[2:])
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read artifact %s: %w", digest, err)
+	}
+	sum := sha256.Sum256(data)
+	if actual := hex.EncodeToString(sum[:]); actual != digest {
+		return nil, fmt.Errorf("artifact %s digest mismatch: got %s", digest, actual)
+	}
+	return data, nil
+}
+
 func (s Store) Verify(record Record) error {
 	if err := validateRecord(record); err != nil {
 		return err

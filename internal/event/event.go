@@ -10,11 +10,19 @@ import (
 )
 
 const (
-	ProjectRegistered  = "ProjectRegistered.v1"
-	RepositoryBound    = "RepositoryBound.v1"
-	RepositoryRelinked = "RepositoryRelinked.v1"
-	RealityCaptured    = "RealityCaptured.v1"
-	SchemaVersion      = 1
+	ProjectRegistered              = "ProjectRegistered.v1"
+	RepositoryBound                = "RepositoryBound.v1"
+	RepositoryRelinked             = "RepositoryRelinked.v1"
+	RealityCaptured                = "RealityCaptured.v1"
+	MeetingCreated                 = "MeetingCreated.v1"
+	ParticipantAdded               = "MeetingParticipantAdded.v1"
+	MeetingStatusSet               = "MeetingStatusSet.v1"
+	AgentRunRecorded               = "AgentRunRecorded.v1"
+	MeetingContentAdded            = "MeetingContentAdded.v1"
+	MeetingConflictSet             = "MeetingConflictSet.v1"
+	SemanticCandidateAdded         = "SemanticCandidateAdded.v1"
+	SemanticCandidateDispositioned = "SemanticCandidateDispositioned.v1"
+	SchemaVersion                  = 1
 )
 
 var idPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
@@ -83,6 +91,106 @@ type RealityCapturedPayload struct {
 	DirtyObserved     bool   `json:"dirty_observed"`
 	Status            string `json:"status"`
 	CapturedAt        string `json:"captured_at"`
+}
+
+type MeetingCreatedPayload struct {
+	MeetingID           string `json:"meeting_id"`
+	ProjectID           string `json:"project_id"`
+	RealityID           string `json:"reality_id"`
+	Kind                string `json:"kind"`
+	Title               string `json:"title"`
+	Brief               string `json:"brief"`
+	Status              string `json:"status"`
+	MaxRounds           int    `json:"max_rounds"`
+	Cycle               int    `json:"cycle"`
+	CurrentRound        int    `json:"current_round"`
+	RealityBundleDigest string `json:"reality_bundle_digest"`
+	CreatedAt           string `json:"created_at"`
+}
+
+type MeetingParticipantAddedPayload struct {
+	MeetingID     string `json:"meeting_id"`
+	ParticipantID string `json:"participant_id"`
+	Seat          string `json:"seat"`
+	Role          string `json:"role"`
+	Provider      string `json:"provider"`
+	Model         string `json:"model"`
+	Status        string `json:"status"`
+	Workdir       string `json:"workdir"`
+	AddedAt       string `json:"added_at"`
+}
+
+type MeetingStatusSetPayload struct {
+	MeetingID     string `json:"meeting_id"`
+	Status        string `json:"status"`
+	Cycle         int    `json:"cycle"`
+	CurrentRound  int    `json:"current_round"`
+	HumanQuestion string `json:"human_question"`
+	ResultDigest  string `json:"result_digest"`
+	UpdatedAt     string `json:"updated_at"`
+}
+
+type AgentRunRecordedPayload struct {
+	MeetingID       string   `json:"meeting_id"`
+	RunID           string   `json:"run_id"`
+	ParticipantID   string   `json:"participant_id"`
+	Phase           string   `json:"phase"`
+	Provider        string   `json:"provider"`
+	ProviderVersion string   `json:"provider_version"`
+	Command         []string `json:"command"`
+	Status          string   `json:"status"`
+	SessionID       string   `json:"session_id"`
+	InputDigest     string   `json:"input_digest"`
+	OutputDigest    string   `json:"output_digest"`
+	RawStreamDigest string   `json:"raw_stream_digest"`
+	StderrDigest    string   `json:"stderr_digest"`
+	Workdir         string   `json:"workdir"`
+	ExitCode        int      `json:"exit_code"`
+	Error           string   `json:"error"`
+	StartedAt       string   `json:"started_at"`
+	FinishedAt      string   `json:"finished_at"`
+}
+
+type MeetingContentAddedPayload struct {
+	MeetingID     string   `json:"meeting_id"`
+	ContentID     string   `json:"content_id"`
+	ParticipantID string   `json:"participant_id"`
+	Kind          string   `json:"kind"`
+	Cycle         int      `json:"cycle"`
+	Round         int      `json:"round"`
+	ContentDigest string   `json:"content_digest"`
+	Refs          []string `json:"refs"`
+	CreatedAt     string   `json:"created_at"`
+}
+
+type MeetingConflictSetPayload struct {
+	MeetingID  string         `json:"meeting_id"`
+	ConflictID string         `json:"conflict_id"`
+	Question   string         `json:"question"`
+	Status     string         `json:"status"`
+	Cycle      int            `json:"cycle"`
+	Round      int            `json:"round"`
+	Positions  map[string]any `json:"positions"`
+	UpdatedAt  string         `json:"updated_at"`
+}
+
+type SemanticCandidateAddedPayload struct {
+	MeetingID   string   `json:"meeting_id"`
+	CandidateID string   `json:"candidate_id"`
+	Kind        string   `json:"kind"`
+	Statement   string   `json:"statement"`
+	SourceRefs  []string `json:"source_refs"`
+	Status      string   `json:"status"`
+	Rationale   string   `json:"rationale"`
+	CreatedAt   string   `json:"created_at"`
+}
+
+type SemanticCandidateDispositionedPayload struct {
+	MeetingID   string `json:"meeting_id"`
+	CandidateID string `json:"candidate_id"`
+	Status      string `json:"status"`
+	Reason      string `json:"reason"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 func NewID() (string, error) {

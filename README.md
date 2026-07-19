@@ -2,9 +2,9 @@
 
 Nemeton 是一套面向 Agent 原生软件项目的本地语义控制平面。
 
-它按顺序记录项目现实、多人讨论、语义决定、任务合同、worktree 执行、硬性验收和失败反馈。人类在会议中确认产品要解决的问题和风险边界，Agent 在已确认的语义与合同下完成实现。项目状态由事件历史重建，`NOW.md`、会议结果和当前任务视图都是可重新生成的投影。
+它按顺序记录项目现实、多人讨论、语义决定、任务合同、worktree 执行、硬性验收和失败反馈。人类在会议中确认产品要解决的问题和风险边界，Agent 在已确认的语义与合同下完成实现。产品 Current State、会议结果和后续任务视图都由事件历史重建；仓库的 `docs/NOW.md` 是 Babel 工作手册。
 
-当前仓库已经完成 Milestone 0：项目身份、只读 Git Reality、SQLite 事件内核、content-addressed artifact、投影和 replay。会议、Runner、worktree 执行和产品 Gate 引擎仍是后续里程碑。
+当前仓库已经完成 Milestone 0 基线和 Milestone 1 持久化 Swarm Meeting 后端：dirty Reality Bundle、Codex/OpenCode Runner、隔离席位 Workdir、三轮有界讨论、Recorder、Verifier、Candidate disposition、数据库 Current State 与 WebSocket。Web UI、任务执行和产品 Gate 引擎仍是后续里程碑。
 
 ```text
 Project Reality
@@ -51,6 +51,10 @@ go run ./cmd/nemeton project open /absolute/path/to/repository --json
 go run ./cmd/nemeton project inspect <project-id> --json
 go run ./cmd/nemeton project replay <project-id> --json
 go run ./cmd/nemeton project relink <project-id> /new/absolute/path --json
+go run ./cmd/nemeton project state <project-id> --json
+go run ./cmd/nemeton meeting create <project-id> --title "Architecture review" --brief "Review the current repository reality" --json
+go run ./cmd/nemeton meeting run <meeting-id> --wait --json
+go run ./cmd/nemeton meeting show <meeting-id> --json
 ```
 
 数据目录优先级为 `--data-dir`、`NEMETON_DATA_DIR`、平台默认目录。Linux 默认使用 `${XDG_DATA_HOME:-$HOME/.local/share}/nemeton`，macOS 默认使用 `$HOME/Library/Application Support/Nemeton`。SQLite 数据目录只支持本地文件系统；完整 `nemetond.sock` 路径在 Linux 不得超过 107 字节，在 macOS 不得超过 103 字节，超限会在创建运行状态前明确失败。
@@ -67,16 +71,16 @@ scripts/semantic-gate
 
 ## 当前实施边界
 
-Milestone 0 必须走通以下路径：
+Milestone 1 在保持 Milestone 0 语义不变的前提下走通以下路径：
 
 ```text
-nemeton project open <path>
-  -> 识别稳定 Project
-  -> 记录 Repository Binding 和 Reality Revision 事件
-  -> 生成当前 Project 投影
-  -> 删除投影
-  -> replay
-  -> 重建出相同结果
+nemeton meeting create <project-id>
+  -> 冻结 Reality Bundle
+  -> 3 个隔离 Design Seat 密封提案
+  -> Reveal + 最多 3 轮讨论
+  -> Recorder + Verifier
+  -> Human select / reject / defer
+  -> replay 重建相同 Meeting / Current State digest
 ```
 
-Milestone 0 不调用模型，不创建 worktree，不修改用户仓库，也不构建会议 UI。`semantic-gate` 是仓库自举 CI，不是 Nemeton 产品 Gate 引擎。
+Meeting Provider 可以在 Nemeton 管理的隔离 Workdir 中读写和实验，但目标 source checkout 必须保持不变。当前不构建会议 UI、任务 worktree 或产品 Gate 引擎；`semantic-gate` 仍是仓库自举 CI。

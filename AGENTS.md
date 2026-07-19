@@ -34,7 +34,7 @@
 ## 验证与交付
 
 - 验证必须直接对应任务合同的可观察验收条件，并绑定准确 diff 或 target SHA。
-- 仓库级硬性验证入口是 `scripts/semantic-gate`，GitHub required check 名称是 `semantic-gate`。它保护 Milestone 0 的原子事务和跨组件联合语义；不要把它误称为尚未实现的 Nemeton 产品 Gate 引擎。
+- 仓库级硬性验证入口是 `scripts/semantic-gate`，GitHub required check 名称是 `semantic-gate`。它保护 Milestone 0/1 的原子事务和跨组件联合语义；不要把它误称为尚未实现的 Nemeton 产品 Gate 引擎。
 - 当前仓库没有 Docker。不要虚构命令或通过状态；以 `docs/WORKFLOW.md` 记录的当前能力为准。
 - 交付前对账代码、文档、Accepted decisions 和 `NOW.md`，说明已验证、未验证、备份、回滚和未完成事项。
 - 使用 `$babel <需求>` 进入设计到交付流程；只有修复工作手册时使用 `$babel-build`。

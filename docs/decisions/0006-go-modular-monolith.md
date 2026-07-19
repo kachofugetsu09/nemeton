@@ -5,10 +5,12 @@
 > 日期：2026-07-19
 >
 > 决策者：Human
+>
+> 修订：Decision 0009 将实时 API 从 SSE 改为 WebSocket。
 
 ## 决定
 
-Nemeton v1 使用 Go 编写本地控制面。一个 `nemetond` 进程拥有 SQLite 写入、领域状态机、Git/worktree 管理、Agent 子进程监督、Gate 执行和 HTTP/SSE API。`nemeton` CLI 通过同一应用服务执行初始化、诊断和脚本化操作。
+Nemeton v1 使用 Go 编写本地控制面。一个 `nemetond` 进程拥有 SQLite 写入、领域状态机、Git/worktree 管理、Agent 子进程监督、Gate 执行和 HTTP/WebSocket API。`nemeton` CLI 通过同一应用服务执行初始化、诊断和脚本化操作。
 
 Git 操作调用系统 `git`，不使用 go-git 重新实现 worktree、branch、fetch 和 merge 语义。
 

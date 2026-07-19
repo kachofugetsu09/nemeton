@@ -8,10 +8,13 @@ import (
 	"io"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/kachofugetsu09/nemeton/internal/event"
+	"github.com/kachofugetsu09/nemeton/internal/meeting"
 	"github.com/kachofugetsu09/nemeton/internal/project"
+	"github.com/kachofugetsu09/nemeton/internal/realtime"
 	"github.com/kachofugetsu09/nemeton/internal/store"
 )
 
@@ -22,27 +25,153 @@ type projectService interface {
 	Inspect(context.Context, string) (store.Snapshot, error)
 	Relink(context.Context, string, string, string) (store.Snapshot, error)
 	Replay(context.Context, string) (store.Snapshot, error)
+	CurrentState(context.Context, string) (store.CurrentState, error)
 	Reconcile(context.Context) (store.ReconcileResult, error)
 }
 
 type Server struct {
 	service       projectService
+	meetings      meetingService
+	hub           *realtime.Hub
 	state         *RuntimeState
 	dataDir       string
 	worktreesRoot string
 	handler       http.Handler
 }
 
-func NewServer(service projectService, state *RuntimeState, dataDir, worktreesRoot string) *Server {
-	server := &Server{service: service, state: state, dataDir: dataDir, worktreesRoot: worktreesRoot}
+type meetingService interface {
+	Create(context.Context, meeting.CreateInput) (store.MeetingSnapshot, error)
+	Inspect(context.Context, string) (store.MeetingSnapshot, error)
+	Start(context.Context, string) (store.MeetingSnapshot, error)
+	Answer(context.Context, string, meeting.HumanInput) (store.MeetingSnapshot, error)
+	Disposition(context.Context, string, meeting.DispositionInput) (store.MeetingSnapshot, error)
+	EventsAfter(context.Context, string, int64) ([]store.StreamEvent, error)
+}
+
+func NewServer(service projectService, meetings meetingService, hub *realtime.Hub, state *RuntimeState, dataDir, worktreesRoot string) *Server {
+	server := &Server{service: service, meetings: meetings, hub: hub, state: state, dataDir: dataDir, worktreesRoot: worktreesRoot}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/health", server.health)
 	mux.HandleFunc("POST /v1/projects/open", server.openProject)
 	mux.HandleFunc("GET /v1/projects/{project_id}", server.inspectProject)
+	mux.HandleFunc("GET /v1/projects/{project_id}/current-state", server.currentState)
 	mux.HandleFunc("POST /v1/projects/{project_id}/relink", server.relinkProject)
 	mux.HandleFunc("POST /v1/projects/{project_id}/replay", server.replayProject)
+	mux.HandleFunc("POST /v1/projects/{project_id}/meetings", server.createMeeting)
+	mux.HandleFunc("GET /v1/meetings/{meeting_id}", server.inspectMeeting)
+	mux.HandleFunc("POST /v1/meetings/{meeting_id}/start", server.startMeeting)
+	mux.HandleFunc("POST /v1/meetings/{meeting_id}/inputs", server.answerMeeting)
+	mux.HandleFunc("POST /v1/meetings/{meeting_id}/ratifications", server.ratifyMeeting)
+	mux.HandleFunc("GET /v1/meetings/{meeting_id}/ws", server.watchMeeting)
 	server.handler = http.MaxBytesHandler(server.requireReady(mux), maximumRequestBody)
 	return server
+}
+
+func (s *Server) currentState(response http.ResponseWriter, request *http.Request) {
+	projectID := request.PathValue("project_id")
+	if err := validateProjectID(projectID); err != nil {
+		writeError(response, err)
+		return
+	}
+	current, err := s.service.CurrentState(request.Context(), projectID)
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, CurrentStateResponse{CurrentState: current})
+}
+
+func (s *Server) createMeeting(response http.ResponseWriter, request *http.Request) {
+	projectID := request.PathValue("project_id")
+	if err := validateProjectID(projectID); err != nil {
+		writeError(response, err)
+		return
+	}
+	var input CreateMeetingRequest
+	if err := decodeRequest(request, &input); err != nil {
+		writeError(response, err)
+		return
+	}
+	snapshot, err := s.meetings.Create(request.Context(), meeting.CreateInput{
+		ProjectID: projectID, Kind: input.Kind, Title: input.Title,
+		Brief: input.Brief, Providers: input.Providers})
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusCreated, MeetingResponse{Meeting: snapshot})
+}
+
+func (s *Server) inspectMeeting(response http.ResponseWriter, request *http.Request) {
+	meetingID := request.PathValue("meeting_id")
+	snapshot, err := s.meetings.Inspect(request.Context(), meetingID)
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, MeetingResponse{Meeting: snapshot})
+}
+
+func (s *Server) startMeeting(response http.ResponseWriter, request *http.Request) {
+	var input struct{}
+	if err := decodeRequest(request, &input); err != nil {
+		writeError(response, err)
+		return
+	}
+	snapshot, err := s.meetings.Start(request.Context(), request.PathValue("meeting_id"))
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusAccepted, MeetingResponse{Meeting: snapshot})
+}
+
+func (s *Server) answerMeeting(response http.ResponseWriter, request *http.Request) {
+	var input HumanInputRequest
+	if err := decodeRequest(request, &input); err != nil {
+		writeError(response, err)
+		return
+	}
+	snapshot, err := s.meetings.Answer(request.Context(), request.PathValue("meeting_id"), meeting.HumanInput{Content: input.Content})
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusAccepted, MeetingResponse{Meeting: snapshot})
+}
+
+func (s *Server) ratifyMeeting(response http.ResponseWriter, request *http.Request) {
+	var input RatificationRequest
+	if err := decodeRequest(request, &input); err != nil {
+		writeError(response, err)
+		return
+	}
+	snapshot, err := s.meetings.Disposition(request.Context(), request.PathValue("meeting_id"), meeting.DispositionInput{
+		CandidateID: input.CandidateID, Disposition: input.Disposition, Reason: input.Reason})
+	if err != nil {
+		writeError(response, err)
+		return
+	}
+	writeJSON(response, http.StatusOK, MeetingResponse{Meeting: snapshot})
+}
+
+func (s *Server) watchMeeting(response http.ResponseWriter, request *http.Request) {
+	meetingID := request.PathValue("meeting_id")
+	if _, err := s.meetings.Inspect(request.Context(), meetingID); err != nil {
+		writeError(response, err)
+		return
+	}
+	after := request.URL.Query().Get("after_sequence")
+	if after != "" {
+		sequence, err := strconv.ParseInt(after, 10, 64)
+		if err != nil || sequence < 0 {
+			writeProblem(response, Problem{Code: "invalid_argument",
+				Title: problemTitle("invalid_argument"), Detail: "after_sequence must be a non-negative integer",
+				Status: http.StatusBadRequest})
+			return
+		}
+	}
+	_ = s.hub.Serve(s.meetings, response, request, meetingID)
 }
 
 func (s *Server) Handler() http.Handler {
@@ -177,9 +306,17 @@ func validateProjectID(projectID string) error {
 }
 
 func writeError(response http.ResponseWriter, err error) {
-	code := project.ErrorCode(err)
+	code := errorCode(err)
 	status := problemStatus(code)
 	writeProblem(response, Problem{Code: code, Title: problemTitle(code), Detail: err.Error(), Status: status})
+}
+
+func errorCode(err error) string {
+	var meetingError *meeting.Error
+	if errors.As(err, &meetingError) {
+		return meetingError.Code
+	}
+	return project.ErrorCode(err)
 }
 
 func writeProblem(response http.ResponseWriter, problem Problem) {
@@ -210,7 +347,9 @@ func problemStatus(code string) int {
 		return http.StatusBadRequest
 	case "project_not_found":
 		return http.StatusNotFound
-	case "ambiguous_integration_branch", "binding_conflict", "stream_conflict", "git_observation_changed":
+	case "meeting_not_found":
+		return http.StatusNotFound
+	case "ambiguous_integration_branch", "binding_conflict", "stream_conflict", "git_observation_changed", "invalid_meeting_state":
 		return http.StatusConflict
 	case "not_git_repository", "unsupported_bare_repository", "integration_branch_not_found", "broken_git_common_dir":
 		return http.StatusUnprocessableEntity

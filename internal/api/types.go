@@ -24,6 +24,31 @@ type ProjectResponse struct {
 	Project store.Snapshot `json:"project"`
 }
 
+type CurrentStateResponse struct {
+	CurrentState store.CurrentState `json:"current_state"`
+}
+
+type CreateMeetingRequest struct {
+	Kind      string            `json:"kind,omitempty"`
+	Title     string            `json:"title"`
+	Brief     string            `json:"brief"`
+	Providers map[string]string `json:"providers,omitempty"`
+}
+
+type HumanInputRequest struct {
+	Content string `json:"content"`
+}
+
+type RatificationRequest struct {
+	CandidateID string `json:"candidate_id"`
+	Disposition string `json:"disposition"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+type MeetingResponse struct {
+	Meeting store.MeetingSnapshot `json:"meeting"`
+}
+
 type Problem struct {
 	Code   string `json:"code"`
 	Title  string `json:"title"`

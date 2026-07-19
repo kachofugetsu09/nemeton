@@ -1,6 +1,10 @@
 package store
 
-import "github.com/kachofugetsu09/nemeton/internal/event"
+import (
+	"encoding/json"
+
+	"github.com/kachofugetsu09/nemeton/internal/event"
+)
 
 const ProjectionSchemaVersion = 1
 
@@ -48,6 +52,124 @@ type AppendRequest struct {
 	ProjectID       string
 	ExpectedVersion int64
 	Events          []event.Envelope
+}
+
+type Meeting struct {
+	ID                  string `json:"id"`
+	ProjectID           string `json:"project_id"`
+	RealityID           string `json:"reality_id"`
+	Kind                string `json:"kind"`
+	Title               string `json:"title"`
+	Brief               string `json:"brief"`
+	Status              string `json:"status"`
+	MaxRounds           int    `json:"max_rounds"`
+	Cycle               int    `json:"cycle"`
+	CurrentRound        int    `json:"current_round"`
+	RealityBundleDigest string `json:"reality_bundle_digest"`
+	HumanQuestion       string `json:"human_question,omitempty"`
+	ResultDigest        string `json:"result_digest"`
+	CreatedAt           string `json:"created_at"`
+	UpdatedAt           string `json:"updated_at"`
+}
+
+type MeetingParticipant struct {
+	ID             string `json:"id"`
+	MeetingID      string `json:"meeting_id"`
+	Seat           string `json:"seat"`
+	Role           string `json:"role"`
+	Provider       string `json:"provider"`
+	Model          string `json:"model,omitempty"`
+	Status         string `json:"status"`
+	SessionID      string `json:"session_id,omitempty"`
+	Workdir        string `json:"workdir"`
+	ProposalDigest string `json:"proposal_digest,omitempty"`
+	UpdatedAt      string `json:"updated_at"`
+}
+
+type AgentRun struct {
+	ID              string   `json:"id"`
+	MeetingID       string   `json:"meeting_id"`
+	ParticipantID   string   `json:"participant_id"`
+	Phase           string   `json:"phase"`
+	Provider        string   `json:"provider"`
+	ProviderVersion string   `json:"provider_version,omitempty"`
+	Command         []string `json:"command,omitempty"`
+	Status          string   `json:"status"`
+	SessionID       string   `json:"session_id,omitempty"`
+	InputDigest     string   `json:"input_digest"`
+	OutputDigest    string   `json:"output_digest,omitempty"`
+	RawStreamDigest string   `json:"raw_stream_digest,omitempty"`
+	StderrDigest    string   `json:"stderr_digest,omitempty"`
+	Workdir         string   `json:"workdir"`
+	ExitCode        int      `json:"exit_code"`
+	Error           string   `json:"error,omitempty"`
+	StartedAt       string   `json:"started_at"`
+	FinishedAt      string   `json:"finished_at,omitempty"`
+}
+
+type MeetingContent struct {
+	ID            string   `json:"id"`
+	MeetingID     string   `json:"meeting_id"`
+	ParticipantID string   `json:"participant_id,omitempty"`
+	Kind          string   `json:"kind"`
+	Cycle         int      `json:"cycle"`
+	Round         int      `json:"round"`
+	ContentDigest string   `json:"content_digest"`
+	Refs          []string `json:"refs"`
+	CreatedAt     string   `json:"created_at"`
+}
+
+type MeetingConflict struct {
+	ID        string         `json:"id"`
+	MeetingID string         `json:"meeting_id"`
+	Question  string         `json:"question"`
+	Status    string         `json:"status"`
+	Cycle     int            `json:"cycle"`
+	Round     int            `json:"round"`
+	Positions map[string]any `json:"positions"`
+	UpdatedAt string         `json:"updated_at"`
+}
+
+type SemanticCandidate struct {
+	ID         string   `json:"id"`
+	MeetingID  string   `json:"meeting_id"`
+	Kind       string   `json:"kind"`
+	Statement  string   `json:"statement"`
+	SourceRefs []string `json:"source_refs"`
+	Status     string   `json:"status"`
+	Rationale  string   `json:"rationale"`
+	CreatedAt  string   `json:"created_at"`
+	UpdatedAt  string   `json:"updated_at"`
+}
+
+type MeetingSnapshot struct {
+	Meeting            Meeting              `json:"meeting"`
+	Participants       []MeetingParticipant `json:"participants"`
+	Runs               []AgentRun           `json:"runs"`
+	Contents           []MeetingContent     `json:"contents"`
+	Conflicts          []MeetingConflict    `json:"conflicts"`
+	Candidates         []SemanticCandidate  `json:"candidates"`
+	StreamVersion      int64                `json:"stream_version"`
+	CurrentStateDigest string               `json:"current_state_digest"`
+}
+
+type CurrentState struct {
+	ProjectID                string              `json:"project_id"`
+	ProjectedThroughSequence int64               `json:"projected_through_sequence"`
+	Meetings                 []Meeting           `json:"meetings"`
+	Candidates               []SemanticCandidate `json:"candidates"`
+	ResultDigest             string              `json:"result_digest"`
+	UpdatedAt                string              `json:"updated_at"`
+}
+
+type StreamEvent struct {
+	Sequence      int64           `json:"sequence"`
+	EventID       string          `json:"event_id"`
+	EventType     string          `json:"event_type"`
+	AggregateType string          `json:"aggregate_type"`
+	AggregateID   string          `json:"aggregate_id"`
+	Payload       json.RawMessage `json:"payload"`
+	RecordedAt    string          `json:"recorded_at"`
 }
 
 type Error struct {

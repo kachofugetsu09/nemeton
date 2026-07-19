@@ -127,6 +127,9 @@ func (s *Store) Append(ctx context.Context, request AppendRequest) (Snapshot, er
 	// 2. Append each immutable fact and apply its reducer.
 	for index := range request.Events {
 		request.Events[index].Sequence = current + int64(index) + 1
+		if err := validateEventPayload(request.Events[index]); err != nil {
+			return Snapshot{}, err
+		}
 		if err := appendEvent(ctx, tx, request.Events[index]); err != nil {
 			return Snapshot{}, err
 		}
@@ -146,6 +149,9 @@ func (s *Store) Append(ctx context.Context, request AppendRequest) (Snapshot, er
 		return Snapshot{}, err
 	}
 	if err := writeProjectionState(ctx, tx, request.ProjectID, newVersion, digest, last.RecordedAt); err != nil {
+		return Snapshot{}, err
+	}
+	if err := writeCurrentState(ctx, tx, request.ProjectID, newVersion, last.RecordedAt); err != nil {
 		return Snapshot{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -177,6 +183,14 @@ func (s *Store) Replay(ctx context.Context, projectID string) (Snapshot, error) 
 
 	// 1. Remove only the Project's derived relational state.
 	for _, statement := range []string{
+		`DELETE FROM current_states WHERE project_id = ?`,
+		`DELETE FROM meeting_event_index WHERE meeting_id IN (SELECT id FROM meetings WHERE project_id = ?)`,
+		`DELETE FROM semantic_candidates WHERE meeting_id IN (SELECT id FROM meetings WHERE project_id = ?)`,
+		`DELETE FROM meeting_conflicts WHERE meeting_id IN (SELECT id FROM meetings WHERE project_id = ?)`,
+		`DELETE FROM meeting_contents WHERE meeting_id IN (SELECT id FROM meetings WHERE project_id = ?)`,
+		`DELETE FROM agent_runs WHERE meeting_id IN (SELECT id FROM meetings WHERE project_id = ?)`,
+		`DELETE FROM meeting_participants WHERE meeting_id IN (SELECT id FROM meetings WHERE project_id = ?)`,
+		`DELETE FROM meetings WHERE project_id = ?`,
 		`DELETE FROM projection_states WHERE project_id = ?`,
 		`DELETE FROM reality_revisions WHERE project_id = ?`,
 		`DELETE FROM repository_bindings WHERE project_id = ?`,
@@ -202,6 +216,9 @@ func (s *Store) Replay(ctx context.Context, projectID string) (Snapshot, error) 
 	}
 	stamp := events[len(events)-1].RecordedAt
 	if err := writeProjectionState(ctx, tx, projectID, version, digest, stamp); err != nil {
+		return Snapshot{}, err
+	}
+	if err := writeCurrentState(ctx, tx, projectID, version, stamp); err != nil {
 		return Snapshot{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -280,6 +297,10 @@ func applyEvent(ctx context.Context, tx *sql.Tx, item event.Envelope) error {
 		_, err := tx.ExecContext(ctx, `INSERT INTO reality_revisions(id, project_id, sequence, integration_branch, commit_oid, tree_oid, manifest_digest, dirty_observed, status, captured_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, payload.RealityID, payload.ProjectID, item.Sequence, payload.IntegrationBranch, payload.CommitOID, payload.TreeOID, payload.ManifestDigest, payload.DirtyObserved, payload.Status, payload.CapturedAt)
 		return wrapReducerError(item, err)
 	default:
+		recognized, err := applyMeetingEvent(ctx, tx, item)
+		if recognized {
+			return err
+		}
 		return &Error{Code: "unknown_event_version", Detail: fmt.Sprintf("unsupported event type %s", item.EventType)}
 	}
 }
