@@ -1,16 +1,18 @@
 # Nemeton 持久化状态地图
 
-> 文档状态：Accepted design；Current implementation 尚不存在
+> 文档状态：Accepted design；Milestone 0 current implementation
 >
 > 核对日期：2026-07-19
 
-当前仓库没有数据库、artifact store、运行 workspace 或 projector。本地图描述 Accepted decisions 0003、0004 及现有产品语义要求未来实现保持的状态边界；具体路径仍是未知项。
+当前仓库已经实现数据库、artifact store 和 Project/Reality projection；其他领域状态仍是后续设计。本地图描述
+Accepted decisions 0003、0004 及现有产品语义要求实现保持的状态边界；运行路径
+已经由 Human 确认。
 
 ## 1. Domain event stream
 
 | 字段 | 语义 |
 | --- | --- |
-| 名称与位置 | 未来本机 SQLite 的 `project_streams`、`domain_events` 和 `event_artifacts`；具体数据目录未知 |
+| 名称与位置 | 应用数据目录的 `nemeton.db` 中的 `project_streams`、`domain_events` 和 `event_artifacts` |
 | 角色 | Project、Reality、Meeting、Semantic Item、Campaign、Task Contract、Gate 与 Evidence 的长期权威事实 |
 | Owner | `nemetond` 领域服务和事件存储；其他进程只能通过 command/API 提交 |
 | 增加 | 通过校验的领域 command 在短事务中按 project sequence 追加事件 |
@@ -19,13 +21,13 @@
 | 物理删除 | 当前没有授权策略；在新 Accepted decision 前，Agent 和客户端均无权删除历史事件 |
 | 重建 | 事件本身不是派生物；可用它和 artifact 重建投影，但不能从投影反推完整事件历史 |
 | 备份恢复 | SQLite backup API、integrity check、事件尾部和 artifact 引用共同定义恢复点 |
-| 待确认 | 数据目录、保留期、用户主动撤销或合规删除的精确协议 |
+| 待确认 | 保留期、用户主动撤销或合规删除的精确协议 |
 
 ## 2. Content-addressed artifact store
 
 | 字段 | 语义 |
 | --- | --- |
-| 名称与位置 | 未来 Nemeton 应用数据目录中的 artifact store；具体路径未知 |
+| 名称与位置 | 应用数据目录中的 `artifacts/sha256/` |
 | 角色 | 保存会议正文、日志、补丁、测试报告、Evidence 和已激活语义内容 |
 | Owner | artifact 模块；事件和领域对象只保存 digest、媒体类型、大小与稳定引用 |
 | 增加 | 写入完整内容、计算 digest、校验落盘后登记引用；相同 digest 可复用同一内容 |
@@ -34,7 +36,7 @@
 | 物理删除 | 当前没有 GC 和保留策略；模型输出等内容可能不可复现，不能仅因“当前未引用”删除 |
 | 重建 | 只有原始内容仍存在于其他已校验来源时才能按相同 digest 重建；不能依赖模型再次生成相同正文 |
 | 备份恢复 | 必须与事件数据库的引用集合一致备份；恢复后逐项校验 digest |
-| 待确认 | artifact 根目录、GC、加密、配额和敏感数据撤销策略 |
+| 待确认 | GC、加密、配额和敏感数据撤销策略 |
 
 ## 3. SQLite current projections
 

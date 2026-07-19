@@ -542,6 +542,11 @@ PostgreSQL 留给团队共享、多机写入、高可用和远程服务形态。
 - 保存 target SHA、输入 digest 和执行环境。
 - 使用 mutation 或受控 fault 证明关键检查能够失败。
 
+Nemeton 仓库从 Milestone 0 起用 required CI `semantic-gate` 保护事件、投影、Git
+Reality、Artifact 和 replay 的原子及联合语义。Gate 在 Linux 与 macOS 使用真实
+Git、SQLite、daemon、CLI 和 Unix Socket；不允许通过 path filter、skip、mock 或
+管理员绕过把未知状态标为通过。详细约束见 Accepted Decision 0008。
+
 ### 13.3 系统信号
 
 - Bug 按模块、接口和契约聚类。
@@ -818,17 +823,25 @@ Campaign 不预先锁死全部任务。第一轮可以包含：
 - PostgreSQL backend。
 - 通用插件市场。
 
-## 22. 开工前的仓库设置
+## 22. 已确认的仓库设置
 
-产品设计已经收敛。Milestone 0 开始前仍需确定几个仓库级参数：
+Milestone 0 使用以下用户确认参数：
 
-- Go module path。
-- v1 公开支持的平台。
-- 应用数据目录。
-- managed worktree root。
-- integration branch 的解析与用户选择规则。
-
-这些参数不能由实现 Agent 根据空仓库状态猜测。
+- Go module 为 `github.com/kachofugetsu09/nemeton`，最低 Go `1.25.0`。
+- 最低系统 Git 为 `2.41.0`。
+- Linux 和 macOS 正式支持；其他 Unix best effort；Windows 不支持。
+- Linux 数据目录为 `${XDG_DATA_HOME:-$HOME/.local/share}/nemeton`；macOS 为
+  `$HOME/Library/Application Support/Nemeton`；`--data-dir` 和
+  `NEMETON_DATA_DIR` 可以覆盖。
+- managed worktree root 默认为 `$HOME/nemeton-workspaces`，可由
+  `NEMETON_WORKTREES_ROOT` 覆盖。
+- integration branch 只从用户显式指定的本地分支、唯一 local remote HEAD 或唯一
+  本地分支确认；无法唯一判断时必须失败，不能从当前 checkout、`main` 或 `master`
+  猜测。
+- Project 首次语义激活前不向目标仓库写 `.nemeton/project.yaml`；Milestone 0 的
+  Project ID 只存在于本机事件流和投影。
+- Milestone 0 后第一批执行适配器优先支持 Codex 与 OpenCode；当前里程碑不创建空
+  Runner 或 Provider 抽象。
 
 ## 23. 产品成功标准
 
