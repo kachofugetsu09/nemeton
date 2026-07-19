@@ -6,6 +6,22 @@ const participants = [
   { id: "pr", seat: "recorder", role: "recorder", provider: "opencode", model: "opencode-go/deepseek-v4-pro", provider_options: { variant: "high" }, status: "waiting" },
 ]
 
+const providerCatalog = {
+  providers: [
+    { id: "codex", label: "Codex", version: "codex-test 1", model_mode: "select", option: "reasoning_effort", models: [
+      { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", description: "Frontier", default: true, option_values: ["low", "medium", "high", "xhigh", "max", "ultra"], default_option: "low" },
+      { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", description: "Fast", default: false, option_values: ["low", "medium", "high", "xhigh", "max"], default_option: "medium" },
+    ] },
+    { id: "opencode", label: "OpenCode", model_mode: "editable", option: "variant", models: [
+      { id: "opencode-go/deepseek-v4-pro", label: "DeepSeek V4 Pro", default: true, option_values: ["low", "medium", "high"], default_option: "high" },
+    ] },
+  ],
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.route("**/v1/providers", (route) => route.fulfill({ json: providerCatalog }))
+})
+
 async function installMeeting(page: Page, id: string, snapshot: object, bodies: Record<string, string>) {
   await page.route(`**/v1/meetings/${id}`, (route) => route.fulfill({ json: { meeting: snapshot } }))
   await page.route(`**/v1/meetings/${id}/contents/*`, (route) => {
@@ -24,6 +40,13 @@ test("provider can be dragged into the roster without mobile overflow", async ({
   await page.getByLabel("Repository 绝对路径").fill("/tmp/project")
   await page.getByRole("button", { name: "打开项目" }).click()
   await page.getByRole("button", { name: /参与者与模型/ }).click()
+
+  const model = page.getByLabel("designer-1 模型")
+  await expect(model.locator("option")).toHaveCount(2)
+  await expect(model).toHaveValue("gpt-5.6-sol")
+  await model.selectOption("gpt-5.6-luna")
+  await expect(page.getByLabel("designer-1 reasoning_effort")).toHaveValue("medium")
+  await expect(page.getByLabel("designer-1 reasoning_effort").locator("option")).toHaveCount(5)
 
   const source = page.locator(".provider-card").first()
   const target = page.locator(".participant-dropzone")

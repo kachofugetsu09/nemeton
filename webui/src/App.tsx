@@ -5,6 +5,7 @@ import { MeetingRoomLive } from "@/features/meetings/meeting-room-live"
 import { ResultReview, type ReviewChoice } from "@/features/meetings/result-review"
 import {
   createMeeting,
+  fetchProviderCatalog,
   fetchHandoff,
   hydrateContents,
   inspectMeeting,
@@ -15,15 +16,30 @@ import {
   type Handoff,
   type MeetingSnapshot,
   type ParticipantInput,
+  type ProviderCatalog,
   type ProjectSnapshot,
 } from "@/lib/api"
 
-const initialParticipants: ParticipantInput[] = [
-  { id: crypto.randomUUID(), seat: "designer-1", role: "designer", provider: "codex", model: "gpt-5.4-mini", provider_options: { reasoning_effort: "medium" } },
-  { id: crypto.randomUUID(), seat: "designer-2", role: "designer", provider: "opencode", model: "opencode-go/deepseek-v4-pro", provider_options: { variant: "high" } },
-  { id: crypto.randomUUID(), seat: "designer-3", role: "designer", provider: "codex", model: "gpt-5.4-mini", provider_options: { reasoning_effort: "medium" } },
-  { id: crypto.randomUUID(), seat: "recorder", role: "recorder", provider: "opencode", model: "opencode-go/deepseek-v4-pro", provider_options: { variant: "high" } },
-]
+function initialParticipants(catalog: ProviderCatalog): ParticipantInput[] {
+  const provider = (id: ParticipantInput["provider"]) => {
+    const definition = catalog.providers.find((item) => item.id === id)
+    if (!definition) throw new Error(`Provider catalog does not contain ${id}`)
+    const model = definition.models.find((item) => item.default)
+    if (!model) throw new Error(`Provider ${id} does not define a default model`)
+    return { definition, model }
+  }
+  const seats: Array<Pick<ParticipantInput, "id" | "seat" | "role" | "provider">> = [
+    { id: crypto.randomUUID(), seat: "designer-1", role: "designer", provider: "codex" },
+    { id: crypto.randomUUID(), seat: "designer-2", role: "designer", provider: "opencode" },
+    { id: crypto.randomUUID(), seat: "designer-3", role: "designer", provider: "codex" },
+    { id: crypto.randomUUID(), seat: "recorder", role: "recorder", provider: "opencode" },
+  ]
+  return seats.map((item) => {
+    const selected = provider(item.provider)
+    return { ...item, model: selected.model.id,
+      provider_options: { [selected.definition.option]: selected.model.default_option } }
+  })
+}
 
 function statusLabel(status: string) {
   const labels: Record<string, string> = {
@@ -38,10 +54,11 @@ export default function App() {
   const [project, setProject] = useState<ProjectSnapshot>()
   const [snapshot, setSnapshot] = useState<MeetingSnapshot>()
   const [handoff, setHandoff] = useState<Handoff>()
+  const [providerCatalog, setProviderCatalog] = useState<ProviderCatalog>()
   const [repoPath, setRepoPath] = useState(localStorage.getItem("nemeton.repo") || "")
   const [title, setTitle] = useState("")
   const [brief, setBrief] = useState("")
-  const [participants, setParticipants] = useState(initialParticipants)
+  const [participants, setParticipants] = useState<ParticipantInput[]>([])
   const [configOpen, setConfigOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -51,6 +68,13 @@ export default function App() {
     setSnapshot(next)
     localStorage.setItem("nemeton.meeting", meetingId)
     if (next.meeting.status === "concluded") setHandoff(await fetchHandoff(meetingId))
+  }, [])
+
+  useEffect(() => {
+    fetchProviderCatalog().then((catalog) => {
+      setProviderCatalog(catalog)
+      setParticipants((current) => current.length === 0 ? initialParticipants(catalog) : current)
+    }).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
   }, [])
 
   useEffect(() => {
@@ -145,9 +169,10 @@ export default function App() {
                 <span><strong>参与者与模型</strong><small>{participants.length} 位 · {participants.filter((item) => item.role === "recorder").length} Recorder</small></span>
                 <ChevronDown data-open={configOpen || undefined} />
               </button>
-              {configOpen && <ParticipantBuilder onChange={setParticipants} value={participants} />}
+              {configOpen && providerCatalog && <ParticipantBuilder catalog={providerCatalog} onChange={setParticipants} value={participants} />}
+              {configOpen && !providerCatalog && <p className="catalog-loading">正在读取当前客户端可用模型…</p>}
             </div>
-            <div className="compose-actions"><span>会议只产出设计、项目语义与 Handoff，不修改目标仓库。</span><button className="primary-button" disabled={!title.trim() || !brief.trim() || busy} onClick={launchMeeting} type="button">召开会议</button></div>
+            <div className="compose-actions"><span>会议只产出设计、项目语义与 Handoff，不修改目标仓库。</span><button className="primary-button" disabled={!providerCatalog || !title.trim() || !brief.trim() || busy} onClick={launchMeeting} type="button">召开会议</button></div>
           </section>
         </main>
       )}

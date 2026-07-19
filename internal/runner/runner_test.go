@@ -4,10 +4,50 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"testing"
+	"time"
 )
+
+func TestCodexCatalogUsesAuthenticatedAppServerPicker(t *testing.T) {
+	bin := t.TempDir()
+	writeExecutable(t, filepath.Join(bin, "codex"), `#!/usr/bin/env bash
+set -euo pipefail
+if [[ "${1:-}" == "--version" ]]; then echo "codex-test 1"; exit 0; fi
+if [[ "${1:-}" != "app-server" ]]; then exit 20; fi
+read -r initialize
+[[ "$initialize" == *'"method":"initialize"'* && "$initialize" == *'"name":"nemeton"'* ]] || exit 21
+echo '{"id":1,"result":{"userAgent":"nemeton-test"}}'
+read -r initialized
+[[ "$initialized" == '{"method":"initialized"}' ]] || exit 22
+read -r first_request
+[[ "$first_request" == *'"method":"model/list"'* && "$first_request" == *'"includeHidden":false'* && "$first_request" == *'"cursor":null'* ]] || exit 23
+echo '{"method":"remoteControl/status/changed","params":{"status":"disabled"}}'
+echo '{"id":2,"result":{"data":[{"model":"gpt-frontier","displayName":"GPT Frontier","description":"Frontier model","isDefault":true,"defaultReasoningEffort":"low","supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"high"},{"reasoningEffort":"ultra"}]}],"nextCursor":"1"}}'
+read -r second_request
+[[ "$second_request" == *'"cursor":"1"'* ]] || exit 24
+echo '{"id":3,"result":{"data":[{"model":"gpt-fast","displayName":"GPT Fast","description":"Fast model","isDefault":false,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"low"},{"reasoningEffort":"medium"},{"reasoningEffort":"high"}]}],"nextCursor":null}}'
+`)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	catalog, err := NewRegistry(map[string]Backend{"codex": Codex{}}).Catalog(ctx, "codex")
+	if err != nil {
+		t.Fatalf("read Codex catalog: %v", err)
+	}
+	expected := Catalog{Provider: "codex", Version: "codex-test 1", Models: []Model{
+		{ID: "gpt-frontier", Label: "GPT Frontier", Description: "Frontier model", Default: true,
+			OptionValues: []string{"low", "high", "ultra"}, DefaultOption: "low"},
+		{ID: "gpt-fast", Label: "GPT Fast", Description: "Fast model",
+			OptionValues: []string{"low", "medium", "high"}, DefaultOption: "medium"},
+	}}
+	if !reflect.DeepEqual(catalog, expected) {
+		t.Fatalf("Catalog = %#v, want %#v", catalog, expected)
+	}
+}
 
 func TestCodexAndOpenCodeProcessContracts(t *testing.T) {
 	if runtime.GOOS == "windows" {

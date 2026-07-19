@@ -7,6 +7,28 @@ export interface ParticipantInput {
   provider_options: Record<string, string>
 }
 
+export interface ProviderModel {
+  id: string
+  label: string
+  description?: string
+  default: boolean
+  option_values: string[]
+  default_option: string
+}
+
+export interface ProviderDescriptor {
+  id: ParticipantInput["provider"]
+  label: string
+  version?: string
+  model_mode: "select" | "editable"
+  models: ProviderModel[]
+  option: string
+}
+
+export interface ProviderCatalog {
+  providers: ProviderDescriptor[]
+}
+
 export interface MeetingParticipant {
   id: string
   seat: string
@@ -87,6 +109,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(problem.detail || `Request failed: ${response.status}`)
   }
   return response.json() as Promise<T>
+}
+
+export async function fetchProviderCatalog() {
+  return request<ProviderCatalog>("/v1/providers")
 }
 
 export async function openProject(path: string) {

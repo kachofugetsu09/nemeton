@@ -50,8 +50,27 @@ type Delta struct {
 	Content  string `json:"content"`
 }
 
+type Model struct {
+	ID            string
+	Label         string
+	Description   string
+	Default       bool
+	OptionValues  []string
+	DefaultOption string
+}
+
+type Catalog struct {
+	Provider string
+	Version  string
+	Models   []Model
+}
+
 type Backend interface {
 	Execute(context.Context, Request, func(Delta)) (Result, error)
+}
+
+type CatalogBackend interface {
+	Catalog(context.Context) (Catalog, error)
 }
 
 type Registry struct {
@@ -81,6 +100,18 @@ func (r *Registry) Execute(ctx context.Context, request Request, emit func(Delta
 		defer cancel()
 	}
 	return backend.Execute(ctx, request, emit)
+}
+
+func (r *Registry) Catalog(ctx context.Context, provider string) (Catalog, error) {
+	backend, ok := r.backends[provider]
+	if !ok {
+		return Catalog{}, fmt.Errorf("unsupported Provider %q", provider)
+	}
+	catalogBackend, ok := backend.(CatalogBackend)
+	if !ok {
+		return Catalog{}, fmt.Errorf("Provider %q does not expose a model catalog", provider)
+	}
+	return catalogBackend.Catalog(ctx)
 }
 
 type processResult struct {

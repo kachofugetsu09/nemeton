@@ -63,6 +63,8 @@ Project + 原始问题
 - daemon 在 loopback 同源提供嵌入式 Web UI、HTTP API 和 WebSocket；Host、Origin 和 Meeting content scope
   在边界校验。
 - 参与者配置默认折叠，Provider 可拖入并选择模型与思考强度。
+- Codex 模型选择器通过本机已认证 Codex 客户端的 app-server `model/list` 动态读取当前可见模型、
+  默认模型和逐模型思考强度；客户端协议失败会明确阻止新会议，不使用前端硬编码列表或静默 fallback。
 - 会议中间只展示带 `@seat` 的自然语言讨论，右侧只展示 Proposal；Result Review 使用独立页面。
 - 用户逐项选择长期保留、仅本方案、反对或稍后，自然语言反馈可空。
 

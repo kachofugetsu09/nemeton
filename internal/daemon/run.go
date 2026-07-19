@@ -52,7 +52,8 @@ func Run(ctx context.Context, configuration config.Config) error {
 	}
 	state := api.NewRuntimeState(reconcile)
 	hub := realtime.NewHub()
-	meetingService := meeting.NewService(database, artifacts, runner.Production(),
+	runners := runner.Production()
+	meetingService := meeting.NewService(database, artifacts, runners,
 		configuration.WorktreesRoot, hub)
 	coordinator := meeting.NewCoordinator(meetingService)
 	meetingService.SetScheduler(coordinator)
@@ -75,7 +76,7 @@ func Run(ctx context.Context, configuration config.Config) error {
 	if err := os.Chmod(configuration.SocketPath, 0o600); err != nil {
 		return fmt.Errorf("set Unix Socket permissions: %w", err)
 	}
-	apiHandler := api.NewServer(projectService, meetingService, hub, state, configuration.DataDir, configuration.WorktreesRoot).Handler()
+	apiHandler := api.NewServer(projectService, meetingService, runners, hub, state, configuration.DataDir, configuration.WorktreesRoot).Handler()
 	server := &http.Server{
 		Handler:           apiHandler,
 		ReadHeaderTimeout: 5 * time.Second,

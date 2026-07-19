@@ -83,12 +83,21 @@ type ProviderCatalog struct {
 }
 
 type ProviderDescriptor struct {
-	ID           string   `json:"id"`
-	Label        string   `json:"label"`
-	ModelMode    string   `json:"model_mode"`
-	KnownModels  []string `json:"known_models"`
-	Option       string   `json:"option"`
-	OptionValues []string `json:"option_values"`
+	ID        string          `json:"id"`
+	Label     string          `json:"label"`
+	Version   string          `json:"version,omitempty"`
+	ModelMode string          `json:"model_mode"`
+	Models    []ProviderModel `json:"models"`
+	Option    string          `json:"option"`
+}
+
+type ProviderModel struct {
+	ID            string   `json:"id"`
+	Label         string   `json:"label"`
+	Description   string   `json:"description,omitempty"`
+	Default       bool     `json:"default"`
+	OptionValues  []string `json:"option_values"`
+	DefaultOption string   `json:"default_option"`
 }
 
 type MeetingResponse struct {
