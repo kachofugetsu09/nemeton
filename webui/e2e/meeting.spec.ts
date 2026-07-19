@@ -68,6 +68,7 @@ test("provider can be dragged into the roster without mobile overflow", async ({
 
 test("meeting keeps natural-language discussion central and proposals separate", async ({ page }) => {
   const contents = [
+    { id: "human", kind: "human_input", cycle: 1, round: 0, content_digest: "d0", refs: [] },
     { id: "proposal", participant_id: "p1", kind: "proposal", cycle: 1, round: 0, content_digest: "d1", refs: [] },
     { id: "position", participant_id: "p2", kind: "position", cycle: 1, round: 1, content_digest: "d2", refs: [] },
   ]
@@ -79,15 +80,68 @@ test("meeting keeps natural-language discussion central and proposals separate",
     stream_version: 12,
   }
   await installMeeting(page, "room", snapshot, {
+    human: "明确断线恢复的唯一事实来源。",
     proposal: JSON.stringify({ summary: "Daemon 持有唯一 committed sequence", candidate_items: [{ statement: "浏览器只提交观察游标。" }] }),
     position: JSON.stringify({ rationale: "@designer-1 同意。客户端不维护独立领域 reducer。" }),
   })
   await page.goto("/")
 
+  await expect(page.getByLabel("会议讨论")).toContainText("You")
+  await expect(page.getByLabel("会议讨论")).toContainText("明确断线恢复的唯一事实来源。")
   await expect(page.getByLabel("会议讨论")).toContainText("@designer-1 同意")
   await expect(page.locator(".proposal-panel-live")).toContainText("Daemon 持有唯一 committed sequence")
   await expect(page.getByLabel("会议讨论")).not.toContainText("Daemon 持有唯一 committed sequence")
   await expect(page.getByText("Verifier", { exact: true })).toHaveCount(0)
+})
+
+test("meeting advances from WebSocket events without a page reload", async ({ page }) => {
+  await page.addInitScript(() => {
+    class MeetingSocket extends EventTarget {
+      static opened = 0
+      readyState = 0
+
+      constructor(_url: string) {
+        super()
+        MeetingSocket.opened += 1
+        const first = MeetingSocket.opened === 1
+        window.setTimeout(() => {
+          this.readyState = 1
+          this.dispatchEvent(new Event("open"))
+          if (!first) return
+          this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({
+            type: "runner_delta", participant_id: "p1",
+            delta: { provider: "codex", type: "item.started", content: "{}" },
+          }) }))
+          this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify({ type: "domain_event", sequence: 13 }) }))
+        }, 20)
+      }
+
+      close() {
+        this.readyState = 3
+        this.dispatchEvent(new Event("close"))
+      }
+    }
+    Object.defineProperty(window, "WebSocket", { configurable: true, value: MeetingSocket })
+  })
+  const initial = {
+    meeting: { id: "live", project_id: "project", title: "实时会议", brief: "让进度可见。", status: "sealed_proposals", cycle: 1, current_round: 0, result_digest: "", protocol_version: 2 },
+    participants: [{ ...participants[0], status: "running" }],
+    contents: [{ id: "human-live", kind: "human_input", cycle: 1, round: 0, content_digest: "h", refs: [] }],
+    candidates: [],
+    stream_version: 12,
+  }
+  let reads = 0
+  await page.route("**/v1/meetings/live", (route) => {
+    reads += 1
+    return route.fulfill({ json: { meeting: { ...initial, stream_version: reads === 1 ? 12 : 13 } } })
+  })
+  await page.route("**/v1/meetings/live/contents/human-live", (route) => route.fulfill({ json: { content: { body: "让进度可见。" } } }))
+  await page.addInitScript(() => localStorage.setItem("nemeton.meeting", "live"))
+  await page.goto("/")
+
+  await expect(page.getByText("Committed sequence 13")).toBeVisible()
+  await expect(page.getByLabel("Agent 当前活动")).toContainText("@designer-1")
+  await expect(page.getByLabel("Agent 当前活动")).toContainText("正在读取仓库或执行工具")
 })
 
 test("result review is option-first and keeps prose optional", async ({ page }) => {

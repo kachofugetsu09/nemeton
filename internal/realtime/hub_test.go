@@ -70,12 +70,12 @@ func TestWebSocketBacklogLiveDeltaAndResumeOverUnixSocket(t *testing.T) {
 		_ = listener.Close()
 	})
 
-	connection := dialTestWebSocket(t, socket, "ws://nemetond/ws?after_sequence=1")
+	connection := dialTestWebSocket(t, socket, "ws://nemetond/ws?after_sequence=1", "http://nemetond")
 	message := readTestMessage(t, connection)
 	if message.Sequence != 2 || message.Type != "domain_event" {
 		t.Fatalf("backlog message = %#v", message)
 	}
-	secondConnection := dialTestWebSocket(t, socket, "ws://nemetond/ws?after_sequence=2")
+	secondConnection := dialTestWebSocket(t, socket, "ws://nemetond/ws?after_sequence=2", "")
 	third := store.StreamEvent{Sequence: 3, EventID: "event-3", EventType: "three"}
 	source.append(third)
 	hub.PublishEvent(meetingID, third)
@@ -95,7 +95,7 @@ func TestWebSocketBacklogLiveDeltaAndResumeOverUnixSocket(t *testing.T) {
 	}
 	_ = connection.Close()
 
-	reconnected := dialTestWebSocket(t, socket, "ws://nemetond/ws?after_sequence=2")
+	reconnected := dialTestWebSocket(t, socket, "ws://nemetond/ws?after_sequence=2", "")
 	defer reconnected.Close()
 	message = readTestMessage(t, reconnected)
 	if message.Sequence != 3 {
@@ -103,12 +103,16 @@ func TestWebSocketBacklogLiveDeltaAndResumeOverUnixSocket(t *testing.T) {
 	}
 }
 
-func dialTestWebSocket(t *testing.T, socket, target string) *websocket.Conn {
+func dialTestWebSocket(t *testing.T, socket, target, origin string) *websocket.Conn {
 	t.Helper()
 	dialer := websocket.Dialer{NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}
-	connection, _, err := dialer.Dial(target, nil)
+	header := http.Header{}
+	if origin != "" {
+		header.Set("Origin", origin)
+	}
+	connection, _, err := dialer.Dial(target, header)
 	if err != nil {
 		t.Fatalf("dial WebSocket: %v", err)
 	}

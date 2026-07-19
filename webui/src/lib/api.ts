@@ -29,6 +29,14 @@ export interface ProviderCatalog {
   providers: ProviderDescriptor[]
 }
 
+export interface RunnerDelta {
+  provider: string
+  type: string
+  content: string
+}
+
+export type RealtimeConnection = "connecting" | "live" | "reconnecting"
+
 export interface MeetingParticipant {
   id: string
   seat: string
@@ -177,20 +185,50 @@ export async function fetchHandoff(meetingId: string) {
   return { ...response.handoff, markdown: response.markdown }
 }
 
-export function watchMeeting(meetingId: string, after: number, onCommitted: () => void) {
+export function watchMeeting(meetingId: string, after: number, handlers: {
+  onCommitted: () => void
+  onDelta: (participantId: string, delta: RunnerDelta) => void
+  onConnection: (connection: RealtimeConnection) => void
+}) {
   const protocol = location.protocol === "https:" ? "wss:" : "ws:"
-  const socket = new WebSocket(`${protocol}//${location.host}/v1/meetings/${meetingId}/ws?after_sequence=${after}`)
+  let socket: WebSocket | undefined
   let pendingRefresh = 0
-  socket.addEventListener("message", (event) => {
-    const message = JSON.parse(String(event.data)) as { type: string }
-    if (message.type !== "domain_event" || pendingRefresh) return
-    pendingRefresh = window.setTimeout(() => {
-      pendingRefresh = 0
-      onCommitted()
-    }, 40)
-  })
+  let retry = 0
+  let stopped = false
+
+  function connect() {
+    handlers.onConnection(retry ? "reconnecting" : "connecting")
+    socket = new WebSocket(`${protocol}//${location.host}/v1/meetings/${meetingId}/ws?after_sequence=${after}`)
+    socket.addEventListener("open", () => handlers.onConnection("live"))
+    socket.addEventListener("message", (event) => {
+      const message = JSON.parse(String(event.data)) as {
+        type: string
+        participant_id?: string
+        delta?: RunnerDelta
+      }
+      if (message.type === "runner_delta" && message.participant_id && message.delta) {
+        handlers.onDelta(message.participant_id, message.delta)
+        return
+      }
+      if (message.type !== "domain_event" || pendingRefresh) return
+      pendingRefresh = window.setTimeout(() => {
+        pendingRefresh = 0
+        handlers.onCommitted()
+      }, 40)
+    })
+    socket.addEventListener("close", () => {
+      if (stopped) return
+      handlers.onConnection("reconnecting")
+      retry = window.setTimeout(connect, 750)
+    })
+    socket.addEventListener("error", () => socket?.close())
+  }
+
+  connect()
   return { close() {
+    stopped = true
     if (pendingRefresh) window.clearTimeout(pendingRefresh)
-    socket.close()
+    if (retry) window.clearTimeout(retry)
+    socket?.close()
   } }
 }

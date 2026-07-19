@@ -144,16 +144,23 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .spin { animation: spin 900ms linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 .discussion-panel { display: flex; flex-direction: column; min-width: 0; overflow: hidden; }
-.meeting-context { border-bottom: 1px solid var(--line); padding: 14px clamp(24px, 5vw, 72px); }
-.meeting-context span { color: var(--quiet); font-size: 12px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; }
-.meeting-context p { font-size: 13px; line-height: 1.5; margin: 5px 0 0; max-width: 74ch; }
 .conversation { flex: 1; overflow: auto; padding: 26px clamp(24px, 5vw, 72px) 80px; }
 .message { border-bottom: 1px solid var(--line); margin: 0 auto; max-width: 780px; padding: 0 0 24px; }
 .message + .message { padding-top: 24px; }
 .message-meta { align-items: baseline; display: flex; gap: 10px; }
 .message-meta strong { color: var(--accent); font-size: 12px; }
+.message[data-human] .message-meta strong { color: var(--ink); }
 .message-meta span { color: var(--quiet); font-size: 12px; font-variant-numeric: tabular-nums; }
 .message p { font-size: 16px; line-height: 1.65; margin: 10px 0 0; max-width: 72ch; white-space: pre-wrap; }
+.agent-activity { border-bottom: 1px solid var(--line); display: grid; gap: 10px; margin: 24px auto 0; max-width: 780px; padding-bottom: 24px; }
+.connection-state { align-items: center; color: var(--quiet); display: flex; font-size: 11px; gap: 7px; }
+.connection-state > span { background: currentColor; border-radius: 50%; height: 5px; width: 5px; }
+.connection-state[data-state="live"] { color: var(--muted); }
+.connection-state[data-state="reconnecting"] { color: var(--danger); }
+.activity-row { align-items: center; display: grid; font-size: 12px; gap: 8px; grid-template-columns: 12px max-content 1fr; min-width: 0; }
+.activity-row svg { color: var(--accent); height: 11px; width: 11px; }
+.activity-row strong { color: var(--ink); font-size: 12px; }
+.activity-row span { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty-conversation { color: var(--muted); display: grid; justify-items: center; margin: 18vh auto 0; max-width: 360px; text-align: center; }
 .empty-conversation svg { color: var(--accent); height: 18px; margin-bottom: 12px; width: 18px; }
 .empty-conversation strong { color: var(--ink); font-size: 14px; }

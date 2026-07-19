@@ -18,6 +18,8 @@ import {
   type ParticipantInput,
   type ProviderCatalog,
   type ProjectSnapshot,
+  type RealtimeConnection,
+  type RunnerDelta,
 } from "@/lib/api"
 
 function initialParticipants(catalog: ProviderCatalog): ParticipantInput[] {
@@ -50,6 +52,22 @@ function statusLabel(status: string) {
   return labels[status] || status
 }
 
+function activityLabel(delta: RunnerDelta) {
+  const labels: Record<string, string> = {
+    "thread.started": "已连接 Codex，正在读取项目",
+    "turn.started": "正在分析项目与任务",
+    "item.started": "正在读取仓库或执行工具",
+    "item.completed": "已完成一步，正在整理证据",
+    "turn.completed": "正在提交提案",
+    step_start: "正在分析项目与任务",
+    text: "正在整理提案",
+    step_finish: "正在提交提案",
+    raw: "正在处理 Provider 输出",
+    error: "Provider 报告错误",
+  }
+  return labels[delta.type] || `正在执行 ${delta.type}`
+}
+
 export default function App() {
   const [project, setProject] = useState<ProjectSnapshot>()
   const [snapshot, setSnapshot] = useState<MeetingSnapshot>()
@@ -59,6 +77,8 @@ export default function App() {
   const [title, setTitle] = useState("")
   const [brief, setBrief] = useState("")
   const [participants, setParticipants] = useState<ParticipantInput[]>([])
+  const [agentActivity, setAgentActivity] = useState<Record<string, string>>({})
+  const [connection, setConnection] = useState<RealtimeConnection>("connecting")
   const [configOpen, setConfigOpen] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
@@ -84,8 +104,10 @@ export default function App() {
 
   useEffect(() => {
     if (!snapshot || snapshot.meeting.status === "concluded" || snapshot.meeting.status === "failed") return
-    const socket = watchMeeting(snapshot.meeting.id, snapshot.stream_version, () => {
-      refresh(snapshot.meeting.id).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause)))
+    const socket = watchMeeting(snapshot.meeting.id, snapshot.stream_version, {
+      onCommitted: () => refresh(snapshot.meeting.id).catch((cause: unknown) => setError(cause instanceof Error ? cause.message : String(cause))),
+      onDelta: (participantId, delta) => setAgentActivity((current) => ({ ...current, [participantId]: activityLabel(delta) })),
+      onConnection: setConnection,
     })
     return () => socket.close()
   }, [snapshot, refresh])
@@ -108,6 +130,7 @@ export default function App() {
     if (recorders.length !== 1) { setError("参与者必须有且只有一个 Recorder。") ; return }
     setBusy(true); setError("")
     try {
+      setAgentActivity({})
       const created = await createMeeting(project.project.id, title.trim(), brief.trim(), participants)
       await startMeeting(created.meeting.id)
       await refresh(created.meeting.id)
@@ -183,7 +206,7 @@ export default function App() {
             <div><span>Cycle {snapshot.meeting.cycle}</span><h1>{snapshot.meeting.title}</h1></div>
             <small>Committed sequence {snapshot.stream_version}</small>
           </header>
-          <MeetingRoomLive snapshot={snapshot} />
+          <MeetingRoomLive activities={agentActivity} connection={connection} snapshot={snapshot} />
         </main>
       )}
     </div>

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -49,8 +50,17 @@ type Hub struct {
 
 func NewHub() *Hub {
 	return &Hub{rooms: make(map[string]map[*client]struct{}), upgrader: websocket.Upgrader{
-		CheckOrigin: func(request *http.Request) bool { return request.Header.Get("Origin") == "" },
+		CheckOrigin: sameOrigin,
 	}}
+}
+
+func sameOrigin(request *http.Request) bool {
+	origin := request.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	parsed, err := url.Parse(origin)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host == request.Host
 }
 
 func (h *Hub) PublishEvent(meetingID string, item store.StreamEvent) {

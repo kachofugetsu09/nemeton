@@ -1,6 +1,6 @@
 import { useMemo } from "react"
 import { Circle, LoaderCircle } from "lucide-react"
-import type { MeetingContent, MeetingSnapshot } from "@/lib/api"
+import type { MeetingContent, MeetingSnapshot, RealtimeConnection } from "@/lib/api"
 
 function parse(body?: string): Record<string, unknown> {
   if (!body) return {}
@@ -22,11 +22,16 @@ function naturalText(content: MeetingContent) {
   return ""
 }
 
-export function MeetingRoomLive({ snapshot }: { snapshot: MeetingSnapshot }) {
+export function MeetingRoomLive({ activities, connection, snapshot }: {
+  activities: Record<string, string>
+  connection: RealtimeConnection
+  snapshot: MeetingSnapshot
+}) {
   const proposals = useMemo(() => snapshot.contents.filter((item) => item.kind === "proposal"), [snapshot.contents])
   const discussion = useMemo(() => snapshot.contents.filter((item) =>
-    ["position", "recorder_opening", "recorder_answer", "review_comment"].includes(item.kind),
+    ["human_input", "position", "recorder_opening", "recorder_answer", "review_comment"].includes(item.kind),
   ), [snapshot.contents])
+  const running = snapshot.participants.filter((participant) => participant.status === "running")
 
   return (
     <div className="meeting-grid">
@@ -44,27 +49,37 @@ export function MeetingRoomLive({ snapshot }: { snapshot: MeetingSnapshot }) {
       </aside>
 
       <section className="discussion-panel" aria-label="会议讨论">
-        <div className="meeting-context">
-          <span>原始问题</span>
-          <p>{snapshot.meeting.brief}</p>
-        </div>
         <div className="conversation">
-          {discussion.length === 0 && (
+          {discussion.map((content) => {
+            const speaker = participantName(snapshot, content.participant_id)
+            return (
+              <article className="message" data-human={speaker === "You" || undefined} key={content.id}>
+                <div className="message-meta"><strong>{speaker === "You" ? "You" : `@${speaker}`}</strong><span>Cycle {content.cycle} · Round {content.round}</span></div>
+                <p>{naturalText(content)}</p>
+              </article>
+            )
+          })}
+          {(running.length > 0 || connection !== "live") && (
+            <section className="agent-activity" aria-label="Agent 当前活动">
+              <div className="connection-state" data-state={connection}>
+                <span />{connection === "live" ? "实时连接" : connection === "reconnecting" ? "连接中断，正在恢复" : "正在连接"}
+              </div>
+              {running.map((participant) => (
+                <div className="activity-row" key={participant.id}>
+                  <LoaderCircle className="spin" />
+                  <strong>@{participantName(snapshot, participant.id)}</strong>
+                  <span>{activities[participant.id] || "正在启动 Provider"}</span>
+                </div>
+              ))}
+            </section>
+          )}
+          {discussion.length === 0 && running.length === 0 && (
             <div className="empty-conversation">
               <LoaderCircle className="spin" />
               <strong>会议正在展开</strong>
               <p>Agent 的自然语言讨论会出现在这里。Proposal 保持在右侧，不打断对话。</p>
             </div>
           )}
-          {discussion.map((content) => {
-            const speaker = participantName(snapshot, content.participant_id)
-            return (
-              <article className="message" key={content.id}>
-                <div className="message-meta"><strong>@{speaker}</strong><span>Cycle {content.cycle} · Round {content.round}</span></div>
-                <p>{naturalText(content)}</p>
-              </article>
-            )
-          })}
         </div>
       </section>
 
