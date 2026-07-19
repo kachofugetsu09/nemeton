@@ -145,7 +145,10 @@ func meetingHandoff(ctx context.Context, args []string, stdout, stderr io.Writer
 	}
 	switch *format {
 	case "markdown":
-		if _, err := io.WriteString(stdout, response.Handoff.Markdown()); err != nil {
+		if response.Markdown == "" {
+			return printFailure(stderr, false, fmt.Errorf("daemon returned an empty Markdown Handoff"))
+		}
+		if _, err := io.WriteString(stdout, response.Markdown); err != nil {
 			return printFailure(stderr, false, err)
 		}
 		return 0

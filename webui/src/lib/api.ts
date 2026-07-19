@@ -74,6 +74,7 @@ export interface Handoff {
   result_digest: string
   result: string
   approved_context: SemanticCandidate[]
+  markdown: string
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -146,8 +147,8 @@ export async function reviewMeeting(
 }
 
 export async function fetchHandoff(meetingId: string) {
-  const response = await request<{ handoff: Handoff }>(`/v1/meetings/${meetingId}/handoff`)
-  return response.handoff
+  const response = await request<{ handoff: Omit<Handoff, "markdown">; markdown: string }>(`/v1/meetings/${meetingId}/handoff`)
+  return { ...response.handoff, markdown: response.markdown }
 }
 
 export function watchMeeting(meetingId: string, after: number, onCommitted: () => void) {

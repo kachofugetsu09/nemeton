@@ -113,7 +113,7 @@ test("approved handoff can be copied as self-contained markdown", async ({ conte
     result_digest: "digest",
     result: "Complete implementation contract and acceptance.",
     approved_context: [{ id: "context", kind: "invariant", statement: "Replay never executes a task twice.", rationale: "No duplicate side effects.", source_refs: ["result"] }],
-  } } }))
+  }, markdown: "---\nschema: nemeton.coding-design-handoff.v1\n---\n\n## Approved design Result\n\nComplete implementation contract.\n\n- Replay never executes a task twice." } }))
   await page.addInitScript(() => localStorage.setItem("nemeton.meeting", "approved"))
   await page.goto("/")
 

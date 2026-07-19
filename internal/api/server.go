@@ -151,7 +151,7 @@ func (s *Server) meetingHandoff(response http.ResponseWriter, request *http.Requ
 		writeError(response, err)
 		return
 	}
-	writeJSON(response, http.StatusOK, HandoffResponse{Handoff: handoff})
+	writeJSON(response, http.StatusOK, HandoffResponse{Handoff: handoff, Markdown: handoff.Markdown()})
 }
 
 func (s *Server) providerCatalog(response http.ResponseWriter, _ *http.Request) {

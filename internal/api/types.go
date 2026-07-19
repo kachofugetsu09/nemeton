@@ -74,7 +74,8 @@ type ContentResponse struct {
 }
 
 type HandoffResponse struct {
-	Handoff meeting.Handoff `json:"handoff"`
+	Handoff  meeting.Handoff `json:"handoff"`
+	Markdown string          `json:"markdown"`
 }
 
 type ProviderCatalog struct {
