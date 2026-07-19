@@ -8,6 +8,8 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+const maximumUnixSocketPathBytes = 107 // sockaddr_un.sun_path has 108 bytes including NUL.
+
 func ensureLocalFilesystem(path string) error {
 	var stat unix.Statfs_t
 	if err := unix.Statfs(path, &stat); err != nil {

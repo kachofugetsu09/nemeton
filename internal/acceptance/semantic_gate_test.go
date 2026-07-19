@@ -64,7 +64,7 @@ func TestMain(m *testing.M) {
 func TestProjectRealityLifecycle(t *testing.T) {
 	root := t.TempDir()
 	repository := newRepository(t, filepath.Join(root, "repository"), "trunk")
-	harness := newHarness(t, filepath.Join(root, "data"))
+	harness := newHarness(t, shortDataDir(t))
 	daemon := harness.start(t)
 
 	// 1. Open a clean repository without changing its checkout or Git metadata.
@@ -161,7 +161,7 @@ func TestProjectRealityLifecycle(t *testing.T) {
 func TestAtomicEventProjectionTransaction(t *testing.T) {
 	root := t.TempDir()
 	repository := newRepository(t, filepath.Join(root, "repository"), "trunk")
-	harness := newHarness(t, filepath.Join(root, "data"))
+	harness := newHarness(t, shortDataDir(t))
 	daemon := harness.start(t)
 	opened := harness.open(t, repository, "trunk")
 	projectID := opened.Project.Project.ID
@@ -194,7 +194,7 @@ func TestAtomicEventProjectionTransaction(t *testing.T) {
 
 func TestRepositoryBoundaryFailures(t *testing.T) {
 	root := t.TempDir()
-	harness := newHarness(t, filepath.Join(root, "data"))
+	harness := newHarness(t, shortDataDir(t))
 	daemon := harness.start(t)
 	defer daemon.stop(t)
 
@@ -237,7 +237,7 @@ func TestRepositoryBoundaryFailures(t *testing.T) {
 func TestUnknownEventVersionPreventsStartup(t *testing.T) {
 	root := t.TempDir()
 	repository := newRepository(t, filepath.Join(root, "repository"), "trunk")
-	harness := newHarness(t, filepath.Join(root, "data"))
+	harness := newHarness(t, shortDataDir(t))
 	daemon := harness.start(t)
 	opened := harness.open(t, repository, "trunk")
 	daemon.stop(t)
@@ -272,8 +272,7 @@ func TestUnknownEventVersionPreventsStartup(t *testing.T) {
 }
 
 func TestFutureSchemaPreventsStartup(t *testing.T) {
-	root := t.TempDir()
-	harness := newHarness(t, filepath.Join(root, "data"))
+	harness := newHarness(t, shortDataDir(t))
 	daemon := harness.start(t)
 	daemon.stop(t)
 
@@ -301,6 +300,20 @@ type daemonProcess struct {
 func newHarness(t *testing.T, dataDir string) *harness {
 	t.Helper()
 	return &harness{dataDir: dataDir}
+}
+
+func shortDataDir(t *testing.T) string {
+	// Keep the real Unix Socket under the shortest shared path on supported hosts.
+	root, err := os.MkdirTemp("/tmp", "nemeton-gate-")
+	if err != nil {
+		t.Fatalf("create short semantic gate directory: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Errorf("remove short semantic gate directory: %v", err)
+		}
+	})
+	return filepath.Join(root, "data")
 }
 
 func (h *harness) start(t *testing.T) *daemonProcess {

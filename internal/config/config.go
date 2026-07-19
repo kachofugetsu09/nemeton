@@ -17,7 +17,9 @@ type Config struct {
 	WorktreesRoot string
 }
 
+// Resolve validates platform paths and returns the complete runtime configuration.
 func Resolve(dataDir string) (Config, error) {
+	// 1. Resolve the user-controlled data boundary for the supported host.
 	if runtime.GOOS == "windows" {
 		return Config{}, fmt.Errorf("Windows is not supported")
 	}
@@ -25,19 +27,34 @@ func Resolve(dataDir string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	socketPath := filepath.Join(resolved, "nemetond.sock")
+	if err := validateSocketPath(socketPath); err != nil {
+		return Config{}, err
+	}
+
+	// 2. Resolve the future managed-worktree boundary without creating it.
 	worktrees, err := resolveWorktreesRoot()
 	if err != nil {
 		return Config{}, err
 	}
+
+	// 3. Derive every owned path from the validated roots.
 	return Config{
 		DataDir:       resolved,
 		DatabasePath:  filepath.Join(resolved, "nemeton.db"),
-		SocketPath:    filepath.Join(resolved, "nemetond.sock"),
+		SocketPath:    socketPath,
 		LockPath:      filepath.Join(resolved, "nemetond.lock"),
 		ArtifactRoot:  filepath.Join(resolved, "artifacts"),
 		BackupRoot:    filepath.Join(resolved, "backups"),
 		WorktreesRoot: worktrees,
 	}, nil
+}
+
+func validateSocketPath(path string) error {
+	if len(path) > maximumUnixSocketPathBytes {
+		return fmt.Errorf("Unix Socket path exceeds the %d-byte %s limit: %s", maximumUnixSocketPathBytes, runtime.GOOS, path)
+	}
+	return nil
 }
 
 func (c Config) Prepare() error {

@@ -54,7 +54,9 @@ macOS: $HOME/Library/Application Support/Nemeton
 
 目录权限为 `0700`，数据文件为 `0600`。已存在但 group/other 权限过宽的目录
 使启动失败，不由 daemon 擅自改权。能够识别的网络文件系统被拒绝；云同步目录
-无法在所有平台可靠识别，因此保留为明确的支持边界。
+无法在所有平台可靠识别，因此保留为明确的支持边界。完整 `nemetond.sock` 路径
+必须符合宿主 `sockaddr_un` 边界：Linux 最多 107 字节，macOS 最多 103 字节；
+配置解析在创建数据库、锁或 Socket 前拒绝超限路径。
 
 Managed worktree root 默认为 `$HOME/nemeton-workspaces`，可由
 `NEMETON_WORKTREES_ROOT` 覆盖。Milestone 0 只解析和展示该路径，不创建目录或
