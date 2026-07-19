@@ -62,7 +62,7 @@ stdout/stderr/版本/规范化命令 Evidence 和 source checkout 末端观察�
 
 ## 2026-07-20：Protocol v2 审阅闭环认证
 
-Milestone 1B 使用最终 Runner 和 Meeting 服务验证了两条真实路径。真实调用在宿主机的认证临时
+Milestone 1B 在该次认证版本的 Runner 和 Meeting 服务上验证了两条真实路径。真实调用在宿主机的认证临时
 repository/Workdir 中运行；没有挂载用户主 checkout，也没有把凭据、原始输出或隐藏推理写入仓库。
 
 | 场景 | Provider | 模型与配置 | 结果 |
@@ -83,4 +83,19 @@ repository/Workdir 中运行；没有挂载用户主 checkout，也没有把凭�
 失败的 OpenCode 子场景，最终 577.20 秒通过。Codex 已通过的路径没有重复消耗额度。
 
 未来 CI 不运行上述真实调用。`scripts/semantic-gate` 使用程序化 Provider 和 Playwright 固化相同的领域
-分支；`certification/Dockerfile` 只构建不含凭据的确定性认证环境。
+分支；交付认证直接使用临时 fixture repository 与 Nemeton 管理的 Workdir，不写用户主 checkout。
+
+## 2026-07-20：Recorder 动作复核
+
+同一 OpenCode 场景在一次复跑中选择了 `answer → patch → patch`：用户已经结构化反对当前 Result 的
+核心 `boundary/invariant`，Recorder 仍尝试局部 patch，因此真实套件在 326.67 秒处按硬断言失败。
+这证明 prompt 不能独自拥有“核心反对必须重开”的协议不变量。
+
+最终实现增加通用、两次有界的 Recorder 协议校验：第一次非法输出作为失败 Agent Run 持久化，带同一
+review state 纠正一次；第二次仍不合法则保留当前 Result 并回到用户审阅。程序化 Provider 固定制造
+`非法 patch → 合法 reconvene`，证明没有静默覆盖用户选择，也不会无限调用模型；完整 semantic gate 通过。
+
+最终代码上的 OpenCode 完整复认证又执行了一次，但 `opencode-go/deepseek-v4-pro` 在第一条 recording
+调用 363.099 秒后仍未返回，测试被人工中止以限制额度，遗留子进程随后明确终止。本文件不把该次运行
+写成通过。当前证据边界是：真实 OpenCode Runner、Session、`answer` 和 `patch` 已由前述完成运行证明；
+新增的有界协议纠正由确定性套件证明，未取得最终代码上的第二份完整真实闭环证据。

@@ -55,6 +55,8 @@ Project + 原始问题
 - Recorder 根据自然反馈和结构化处置自主选择 `answer`、`patch` 或 `reconvene`；核心 owner、boundary、
   invariant 或 failure model 的变化必须重开。
 - 批准只生成数据库状态和 Coding Design Handoff；不修改目标仓库，不生成 commit，不激活 `.nemeton/` 语义。
+- Handoff 可通过 UI 复制为自包含 Markdown，或由
+  `nemeton meeting handoff <meeting-id> --format markdown` 输出；保存到哪个仓库仍由 Human 显式决定。
 
 ### Local Web UI
 
@@ -70,6 +72,7 @@ Project + 原始问题
 - Playwright 固化真实拖拽、390px 无横向溢出、讨论/Proposal attention 分离和 option-first Result Review。
 - protocol v1 数据仍可读取和 replay；v2 不创建 Verifier。
 - restart/replay 不调用 Provider、不启动新 Cycle、不重复 committed event 或外部副作用。
+- Recorder 非法动作最多纠正一次；第二次仍不符合协议时保留当前 Result 并返回用户审阅。
 - 真实 Provider 只在交付认证或客户端协议变化时运行，CI 使用程序化 Provider。
 
 ## 下一步

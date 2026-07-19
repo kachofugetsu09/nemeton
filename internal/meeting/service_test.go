@@ -86,6 +86,11 @@ func programmaticOutput(prompt string) string {
 			id = references[0][1]
 		}
 		switch {
+		case strings.Contains(prompt, "Protocol correction:"):
+			return `{"action":"reconvene","response":"","opening":"Reconsider the rejected core boundary with the original roster.","synthesis":"","candidates":[]}`
+		case strings.Contains(prompt, "POLICY_CORRECTION"):
+			data, _ := json.Marshal(map[string]any{"action": "patch", "response": "", "opening": "", "synthesis": "Invalid local patch for a rejected boundary.", "candidates": []map[string]any{{"kind": "boundary", "statement": "The daemon owns committed sequence recovery.", "rationale": "This deliberately violates the reconvene policy.", "source_refs": []string{id}}}})
+			return string(data)
 		case strings.Contains(prompt, "CORE_REJECT"):
 			return `{"action":"reconvene","response":"","opening":"Reconsider the rejected state ownership while preserving locked context.","synthesis":"","candidates":[]}`
 		case strings.Contains(prompt, "LOCAL_PATCH"):
@@ -208,13 +213,25 @@ func TestProtocolV2ReviewLoopPersistsContextAndReplaysWithoutProviders(t *testin
 	if current.Meeting.ResultContentID == resultID || current.Meeting.Status != "awaiting_user_review" {
 		t.Fatalf("Recorder patch did not create a Result revision: %#v", current.Meeting)
 	}
-	current = reviewMixedForTest(t, ctx, service, current, "CORE_REJECT: reconsider the core recovery owner.")
+	current = reviewMixedForTest(t, ctx, service, current, "POLICY_CORRECTION: reconsider the core recovery owner.")
+	if !requiresSwarmReview(current) {
+		t.Fatalf("structured core rejection was not recognized: %#v", current.Candidates)
+	}
 	if err := service.Run(ctx, current.Meeting.ID); err != nil {
 		t.Fatalf("run Recorder reconvene decision: %v", err)
 	}
 	current = inspectMeetingForTest(t, ctx, service, current.Meeting.ID)
 	if current.Meeting.Status != "reconvening" || current.Meeting.Cycle != 2 || !hasKind(current, "recorder_opening") {
-		t.Fatalf("Recorder did not reconvene: %#v", current.Meeting)
+		t.Fatalf("Recorder did not reconvene: meeting=%#v runs=%#v candidates=%#v", current.Meeting, current.Runs, current.Candidates)
+	}
+	failedCorrections := 0
+	for _, run := range current.Runs {
+		if run.Phase == "recorder_review" && run.Status == "failed" && strings.Contains(run.Error, "requires reconvene") {
+			failedCorrections++
+		}
+	}
+	if failedCorrections != 1 {
+		t.Fatalf("bounded Recorder correction failures = %d, want 1", failedCorrections)
 	}
 	if err := service.Run(ctx, current.Meeting.ID); err != nil {
 		t.Fatalf("run reconvened cycle: %v", err)
@@ -237,6 +254,13 @@ func TestProtocolV2ReviewLoopPersistsContextAndReplaysWithoutProviders(t *testin
 	handoff, err := service.Handoff(ctx, current.Meeting.ID)
 	if err != nil || len(handoff.ApprovedContext) < 3 {
 		t.Fatalf("Handoff approved context = %d, error %v", len(handoff.ApprovedContext), err)
+	}
+	markdown := handoff.Markdown()
+	for _, required := range []string{handoff.Schema, handoff.MeetingID, handoff.ResultDigest,
+		current.Meeting.Brief, handoff.Result, handoff.ApprovedContext[0].Statement} {
+		if !strings.Contains(markdown, required) {
+			t.Fatalf("Markdown Handoff omits %q", required)
+		}
 	}
 	beforeDigest := current.CurrentStateDigest
 	beforeCalls := programmaticCalls.Load()

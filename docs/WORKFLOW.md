@@ -6,7 +6,7 @@
 
 当前仓库已经实现 Milestone 0 基线、Milestone 1A 持久化 Meeting 后端和 Milestone 1B 审阅闭环：Reality Bundle、每席位隔离 Workdir、Codex/OpenCode Runner、protocol v1 兼容、protocol v2 动态 Swarm、单 Recorder、多 Cycle Result review、Approved Context、Handoff、HTTP/WebSocket、CLI、Local Web UI、replay 与恢复。唯一仓库级验证入口是 `scripts/semantic-gate`；GitHub 上稳定的 required check 名称是 `semantic-gate`。
 
-仓库级 Gate 保护 Milestone 0 与 Milestone 1 已实现的原子事务和跨组件联合语义，不等于本文后半部分 Accepted 产品设计中的 Contract、Task、Integration 或 Release Gate 引擎。当前仓库仍没有 Campaign、Task 执行或产品 Gate 引擎；Dockerfile 只用于一次性交付认证，不是运行形态。数据库 Current State 是产品投影；`docs/NOW.md` 仍是人工维护的仓库工作手册。
+仓库级 Gate 保护 Milestone 0 与 Milestone 1 已实现的原子事务和跨组件联合语义，不等于本文后半部分 Accepted 产品设计中的 Contract、Task、Integration 或 Release Gate 引擎。当前仓库仍没有 Campaign、Task 执行或产品 Gate 引擎，也没有 Docker。数据库 Current State 是产品投影；`docs/NOW.md` 仍是人工维护的仓库工作手册。
 
 在 Nemeton 能自举管理自身以前，仓库变更通过 Babel 工作流执行；不能用未来产品能力伪装当前验证已经完成。
 

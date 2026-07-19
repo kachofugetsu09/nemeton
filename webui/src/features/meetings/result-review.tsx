@@ -19,6 +19,39 @@ function resultSynthesis(body?: string) {
   } catch { return body }
 }
 
+function handoffMarkdown(handoff: Handoff) {
+  const context = handoff.approved_context.length === 0
+    ? "No additional project context was approved."
+    : handoff.approved_context.map((item) => [
+      `- **${item.kind}:** ${item.statement}`,
+      item.rationale ? `  - Rationale: ${item.rationale}` : "",
+      item.source_refs.length > 0 ? `  - Sources: \`${item.source_refs.join("`, `")}\`` : "",
+    ].filter(Boolean).join("\n")).join("\n\n")
+  return [
+    "---",
+    `schema: ${handoff.schema}`,
+    `meeting_id: ${handoff.meeting_id}`,
+    `result_content_id: ${handoff.result_content_id}`,
+    `result_digest: ${handoff.result_digest}`,
+    "---",
+    "",
+    `# ${handoff.title}`,
+    "",
+    "## Original request",
+    "",
+    handoff.original_brief,
+    "",
+    "## Approved design Result",
+    "",
+    handoff.result.trim(),
+    "",
+    "## Approved project context",
+    "",
+    context,
+    "",
+  ].join("\n")
+}
+
 export function ResultReview({ snapshot, resultBody, busy, handoff, onSubmit, onBack }: {
   snapshot: MeetingSnapshot
   resultBody?: string
@@ -57,7 +90,7 @@ export function ResultReview({ snapshot, resultBody, busy, handoff, onSubmit, on
           {handoff.approved_context.length === 0 ? <p>本次没有新增长期项目语义。</p> : (
             <ul>{handoff.approved_context.map((item) => <li key={item.id}>{item.statement}</li>)}</ul>
           )}
-          <button className="primary-button" onClick={() => navigator.clipboard.writeText(JSON.stringify(handoff, null, 2))} type="button"><Download />复制 Handoff JSON</button>
+          <button className="primary-button" onClick={() => navigator.clipboard.writeText(handoffMarkdown(handoff))} type="button"><Download />复制 Markdown Handoff</button>
         </div>
       </section>
     )

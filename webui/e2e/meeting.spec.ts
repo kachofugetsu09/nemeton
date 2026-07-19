@@ -93,3 +93,33 @@ test("result review is option-first and keeps prose optional", async ({ page }) 
   await expect(page.getByRole("button", { name: "批准完整方案" })).toBeDisabled()
   await expect(page.getByRole("button", { name: "继续处理" })).toBeEnabled()
 })
+
+test("approved handoff can be copied as self-contained markdown", async ({ context, page }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"])
+  const snapshot = {
+    meeting: { id: "approved", project_id: "project", title: "Milestone 2", brief: "完成单任务执行闭环。", status: "concluded", cycle: 1, current_round: 1, result_digest: "digest", result_content_id: "result", approved_result_digest: "digest", protocol_version: 2 },
+    participants,
+    contents: [],
+    candidates: [],
+    stream_version: 30,
+  }
+  await page.route("**/v1/meetings/approved", (route) => route.fulfill({ json: { meeting: snapshot } }))
+  await page.route("**/v1/meetings/approved/handoff", (route) => route.fulfill({ json: { handoff: {
+    schema: "nemeton.coding-design-handoff.v1",
+    meeting_id: "approved",
+    title: "Milestone 2",
+    original_brief: "完成单任务执行闭环。",
+    result_content_id: "result",
+    result_digest: "digest",
+    result: "Complete implementation contract and acceptance.",
+    approved_context: [{ id: "context", kind: "invariant", statement: "Replay never executes a task twice.", rationale: "No duplicate side effects.", source_refs: ["result"] }],
+  } } }))
+  await page.addInitScript(() => localStorage.setItem("nemeton.meeting", "approved"))
+  await page.goto("/")
+
+  await page.getByRole("button", { name: "复制 Markdown Handoff" }).click()
+  const clipboard = await page.evaluate(() => navigator.clipboard.readText())
+  expect(clipboard).toContain("schema: nemeton.coding-design-handoff.v1")
+  expect(clipboard).toContain("## Approved design Result")
+  expect(clipboard).toContain("Replay never executes a task twice.")
+})

@@ -62,6 +62,7 @@ go run ./cmd/nemeton project state <project-id> --json
 go run ./cmd/nemeton meeting create <project-id> --title "Architecture review" --brief "Review the current repository reality" --json
 go run ./cmd/nemeton meeting run <meeting-id> --wait --json
 go run ./cmd/nemeton meeting show <meeting-id> --json
+go run ./cmd/nemeton meeting handoff <meeting-id> --format markdown > approved-handoff.md
 ```
 
 数据目录优先级为 `--data-dir`、`NEMETON_DATA_DIR`、平台默认目录。Linux 默认使用 `${XDG_DATA_HOME:-$HOME/.local/share}/nemeton`，macOS 默认使用 `$HOME/Library/Application Support/Nemeton`。SQLite 数据目录只支持本地文件系统；完整 `nemetond.sock` 路径在 Linux 不得超过 107 字节，在 macOS 不得超过 103 字节，超限会在创建运行状态前明确失败。

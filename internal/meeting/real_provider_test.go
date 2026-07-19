@@ -68,25 +68,38 @@ func TestRealProviderCertification(t *testing.T) {
 			t.Fatalf("real Recorder did not create a full patch revision")
 		}
 
-		items := make([]event.SemanticReviewItem, 0)
-		index := 0
+		currentCandidates := make([]store.SemanticCandidate, 0)
 		for _, candidate := range snapshot.Candidates {
-			if !contains(candidate.SourceRefs, snapshot.Meeting.ResultContentID) {
-				continue
+			if contains(candidate.SourceRefs, snapshot.Meeting.ResultContentID) {
+				currentCandidates = append(currentCandidates, candidate)
 			}
+		}
+		if len(currentCandidates) < 2 {
+			t.Fatalf("real patched Result produced %d candidates", len(currentCandidates))
+		}
+		rejectedID := ""
+		for _, candidate := range currentCandidates {
+			if candidate.Kind == "boundary" || candidate.Kind == "invariant" {
+				rejectedID = candidate.ID
+				break
+			}
+		}
+		if rejectedID == "" {
+			t.Fatal("real patched Result produced no boundary or invariant Candidate")
+		}
+		items := make([]event.SemanticReviewItem, 0, len(currentCandidates))
+		persisted := false
+		for _, candidate := range currentCandidates {
 			item := event.SemanticReviewItem{CandidateID: candidate.ID,
 				DesignDisposition: "accepted", ContextDisposition: "result_only"}
-			if index == 0 {
-				item.ContextDisposition = "persist"
-			} else if index == 1 {
+			if candidate.ID == rejectedID {
 				item.DesignDisposition = "rejected"
 				item.ContextDisposition = "none"
+			} else if !persisted {
+				item.ContextDisposition = "persist"
+				persisted = true
 			}
 			items = append(items, item)
-			index++
-		}
-		if len(items) < 2 {
-			t.Fatalf("real patched Result produced %d candidates, need at least 2", len(items))
 		}
 		snapshot, err = service.Review(ctx, snapshot.Meeting.ID, ReviewInput{
 			ResultAction: "continue", Items: items,

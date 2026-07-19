@@ -11,7 +11,7 @@
 - 源码仓库位于 `/mnt/data/coding/nemeton`。
 - 初始基线为 `53fc381cc9f4f76a7844ff964bd3fc86f175dff8`，分支为 `main`。
 - Git remote `origin` 为 `git@github.com:kachofugetsu09/nemeton.git`。
-- 初始基线只有 README 和文档。当前仓库已经实现 Go module、SQLite event/projection、Project Reality、持久化 Swarm Meeting、Codex/OpenCode Runner、隔离 Workdir、HTTP/WebSocket、CLI、Local Web UI、真实测试和 Linux/macOS CI；只有交付认证 Dockerfile，不提供 Docker 运行形态或常驻安装服务。
+- 初始基线只有 README 和文档。当前仓库已经实现 Go module、SQLite event/projection、Project Reality、持久化 Swarm Meeting、Codex/OpenCode Runner、隔离 Workdir、HTTP/WebSocket、CLI、Local Web UI、真实测试和 Linux/macOS CI；当前没有 Docker 运行形态或认证 Dockerfile。
 - `.codegraph/` 不存在；是否建立索引由用户决定。
 
 这些事实描述初始化时点，不是长期产品要求。以后判断当前实现必须重新读取 Git、文件和运行证据。

@@ -52,6 +52,8 @@ Milestone 1B 完成从模糊问题到可供后续 Coding 消费的批准设计�
 - `answer`：追加 Recorder 对话内容，Result ID/digest 不变，回到 `awaiting_user_review`。
 - `patch`：输出完整替代 Result 与带 durable refs 的 Candidates，追加 revision，旧内容不可变。
 - `reconvene`：追加 Recorder opening，Cycle 加一，复用同一 Participant、Provider 配置、Workdir 和 Session。
+- Recorder 决策经过通用协议校验；非法结构或试图用局部动作越过明确的核心语义反对时最多纠正一次，
+  仍不合法就保留当前 Result 并回到用户审阅，不无限调用模型。
 - 有界讨论达到轮数上限后，v2 交给 Recorder 保存 dissent/unknown 并形成可审阅 Result；不无限循环，
   也不要求用户先替 Agent 指定动作。
 - 用户 `approve` 完整 Result 时，每个设计条目都必须接受；存在反对或稍后项时只能继续交给 Recorder。
@@ -73,7 +75,8 @@ replay 只执行 reducer：不调用 Provider、不启动新 Cycle、不写 Git�
 - 静态资源由 daemon embed，同源 API 与 WebSocket；Host、Origin、内容读取的 Meeting scope 在边界校验。
 - 首页配置默认三个 Design Agent 和一个 Recorder；参与者配置折叠，Provider 可拖入，也可点击添加。
 - 会议页的注意力中心只有自然语言讨论；`@seat` 直接出现在对话，Proposal 只在右栏。
-- Result Review 与会议页分离；逐项选项是主操作，自然语言是可选补充；批准后展示可复制 Handoff。
+- Result Review 与会议页分离；逐项选项是主操作，自然语言是可选补充；批准后可复制自包含
+  Markdown Handoff。
 - WebSocket runner delta 不触发 projection 全量刷新；committed domain event 在 40ms 窗口内合并刷新，
   保持准实时感受并避免长输出制造请求风暴。
 - 视觉使用冷白、墨色和单一 cobalt accent 的 OKLCH tokens；正文限制行长，精确 transition，
@@ -95,6 +98,7 @@ replay 只执行 reducer：不调用 Provider、不启动新 Cycle、不写 Git�
 | Store/reducer | migration、event payload、projection、digest | restart/replay 后 review、Result 和 context 完全相同 |
 | Runner | Codex/OpenCode model/options/session | Cycle 复用配置与 Session，协议错误 fail-loud |
 | Meeting | answer、patch、reconvene、approve | 部分接受/拒绝、locked context、Handoff 组合成立 |
+| Handoff | JSON API、Markdown renderer | CLI/UI 导出的正文包含原始问题、批准 Result、digest 和长期上下文 |
 | API/WebSocket | Host/Origin/schema/content scope | committed sequence 恢复且不重复副作用 |
 | Web UI | 拖拽、移动端、审阅选项 | 讨论/Proposal/Result attention 与 daemon 状态一致 |
 | 兼容性 | protocol v1 可读可 replay | v1 Verifier 历史不影响 v2 无 Verifier 流程 |

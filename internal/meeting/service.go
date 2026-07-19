@@ -87,6 +87,31 @@ type Handoff struct {
 	ApprovedContext []store.SemanticCandidate `json:"approved_context"`
 }
 
+// Markdown renders a self-contained handoff without writing the target repository.
+func (h Handoff) Markdown() string {
+	// 1. Preserve the approved Result exactly as recorded.
+	var document strings.Builder
+	fmt.Fprintf(&document, "---\nschema: %s\nmeeting_id: %s\nresult_content_id: %s\nresult_digest: %s\n---\n\n", h.Schema, h.MeetingID, h.ResultContentID, h.ResultDigest)
+	fmt.Fprintf(&document, "# %s\n\n## Original request\n\n%s\n\n## Approved design Result\n\n%s\n", h.Title, h.OriginalBrief, strings.TrimSpace(h.Result))
+
+	// 2. Append the Human-selected context that future work must preserve.
+	document.WriteString("\n\n## Approved project context\n")
+	if len(h.ApprovedContext) == 0 {
+		document.WriteString("\nNo additional project context was approved.\n")
+		return document.String()
+	}
+	for _, item := range h.ApprovedContext {
+		fmt.Fprintf(&document, "\n- **%s:** %s\n", item.Kind, item.Statement)
+		if item.Rationale != "" {
+			fmt.Fprintf(&document, "  - Rationale: %s\n", item.Rationale)
+		}
+		if len(item.SourceRefs) > 0 {
+			fmt.Fprintf(&document, "  - Sources: `%s`\n", strings.Join(item.SourceRefs, "`, `"))
+		}
+	}
+	return document.String()
+}
+
 type Service struct {
 	store         *store.Store
 	artifacts     artifact.Store
@@ -948,23 +973,89 @@ func (s *Service) recorderReview(ctx context.Context, snapshot store.MeetingSnap
 	if err != nil {
 		return err
 	}
-	result, err := s.execute(ctx, snapshot, recorder, "recorder_review", recorderReviewPrompt(snapshot.Meeting, materials))
-	if err != nil {
-		return err
-	}
-	var output recorderReviewOutput
-	if err := decodeStructured(result.RunnerResult.Output, &output); err != nil {
-		protocolErr := fmt.Errorf("decode Recorder review: %w", err)
-		if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recorder_review", result, protocolErr); err != nil {
+	prompt := recorderReviewPrompt(snapshot.Meeting, materials)
+	for attempt := 1; attempt <= 2; attempt++ {
+		result, err := s.execute(ctx, snapshot, recorder, "recorder_review", prompt)
+		if err != nil {
 			return err
 		}
-		return protocolErr
+		var output recorderReviewOutput
+		decodeErr := decodeStructured(result.RunnerResult.Output, &output)
+		if decodeErr != nil {
+			err = fmt.Errorf("decode Recorder review: %w", decodeErr)
+		} else {
+			err = validateRecorderReview(snapshot, output)
+		}
+		if err == nil {
+			return s.applyRecorderReview(ctx, snapshot, recorder, result, output)
+		}
+		if persistErr := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recorder_review", result, err); persistErr != nil {
+			return persistErr
+		}
+		if attempt == 2 {
+			current, inspectErr := s.store.InspectMeeting(ctx, snapshot.Meeting.ID)
+			if inspectErr != nil {
+				return inspectErr
+			}
+			question := "Recorder could not produce a protocol-compliant decision after 2 attempts: " + err.Error()
+			return s.setStatusWithContent(ctx, current, "awaiting_user_review", current.Meeting.Cycle,
+				current.Meeting.CurrentRound, question, current.Meeting.ResultDigest, current.Meeting.ResultContentID)
+		}
+		prompt = recorderReviewCorrectionPrompt(prompt, err.Error())
+	}
+	panic("unreachable Recorder review attempt count")
+}
+
+func validateRecorderReview(snapshot store.MeetingSnapshot, output recorderReviewOutput) error {
+	if requiresSwarmReview(snapshot) && output.Action != "reconvene" {
+		return fmt.Errorf("a rejected boundary or invariant requires reconvene, got %s", output.Action)
 	}
 	switch output.Action {
 	case "answer":
 		if strings.TrimSpace(output.Response) == "" {
 			return fmt.Errorf("Recorder answer must contain a response")
 		}
+	case "patch":
+		converted := recorderOutput{Synthesis: output.Synthesis}
+		for _, candidate := range output.Candidates {
+			converted.Candidates = append(converted.Candidates, struct {
+				Kind       string   `json:"kind"`
+				Statement  string   `json:"statement"`
+				Rationale  string   `json:"rationale"`
+				SourceRefs []string `json:"source_refs"`
+			}{Kind: candidate.Kind, Statement: candidate.Statement, Rationale: candidate.Rationale,
+				SourceRefs: candidate.SourceRefs})
+		}
+		if err := validateRecorderResult(converted, snapshot.Contents); err != nil {
+			return err
+		}
+	case "reconvene":
+		if strings.TrimSpace(output.Opening) == "" {
+			return fmt.Errorf("Recorder reconvene decision must contain an opening")
+		}
+	default:
+		return fmt.Errorf("Recorder returned invalid action %q", output.Action)
+	}
+	return nil
+}
+
+func requiresSwarmReview(snapshot store.MeetingSnapshot) bool {
+	for _, candidate := range snapshot.Candidates {
+		if !contains(candidate.SourceRefs, snapshot.Meeting.ResultContentID) || candidate.DesignDisposition != "rejected" {
+			continue
+		}
+		if candidate.Kind == "boundary" || candidate.Kind == "invariant" {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) applyRecorderReview(ctx context.Context, snapshot store.MeetingSnapshot,
+	recorder store.MeetingParticipant, result runResult, output recorderReviewOutput) error {
+	// Persist one validated Recorder decision and its observable state transition.
+	switch output.Action {
+	case "answer":
 		if err := s.persistRunResult(ctx, snapshot.Meeting.ID, recorder, "recorder_review", result, "recorder_answer", []string{snapshot.Meeting.ResultContentID}); err != nil {
 			return err
 		}
@@ -985,9 +1076,6 @@ func (s *Service) recorderReview(ctx context.Context, snapshot store.MeetingSnap
 			}{Kind: candidate.Kind, Statement: candidate.Statement, Rationale: candidate.Rationale,
 				SourceRefs: candidate.SourceRefs})
 		}
-		if err := validateRecorderResult(converted, snapshot.Contents); err != nil {
-			return err
-		}
 		if err := s.persistRunResult(ctx, snapshot.Meeting.ID, recorder, "recorder_review", result,
 			"meeting_result", []string{snapshot.Meeting.ResultContentID}); err != nil {
 			return err
@@ -1002,9 +1090,6 @@ func (s *Service) recorderReview(ctx context.Context, snapshot store.MeetingSnap
 		}
 		return s.persistResultCandidates(ctx, current, content, result.OutputRecord.Digest, converted.Candidates)
 	case "reconvene":
-		if strings.TrimSpace(output.Opening) == "" {
-			return fmt.Errorf("Recorder reconvene decision must contain an opening")
-		}
 		if err := s.persistRunResult(ctx, snapshot.Meeting.ID, recorder, "recorder_review", result,
 			"recorder_opening", []string{snapshot.Meeting.ResultContentID}); err != nil {
 			return err
@@ -1019,9 +1104,8 @@ func (s *Service) recorderReview(ctx context.Context, snapshot store.MeetingSnap
 		}
 		s.enqueue(snapshot.Meeting.ID)
 		return nil
-	default:
-		return fmt.Errorf("Recorder returned invalid action %q", output.Action)
 	}
+	panic("validated Recorder action became invalid")
 }
 
 func validateRecorderResult(output recorderOutput, contents []store.MeetingContent) error {

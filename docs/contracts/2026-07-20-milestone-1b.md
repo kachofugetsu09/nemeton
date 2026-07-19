@@ -54,7 +54,7 @@
 - Worktree：`/mnt/data/coding/nemeton-worktrees/milestone-1b`。
 - Allowed paths：`cmd/**`、`internal/**`、`migrations/**`、`webui/**`、`certification/**`、
   `scripts/semantic-gate`、必要的 module/lock/workflow 文件和对应 docs。
-- Allowed external effects：真实 Codex/OpenCode 调用、模型额度、认证专用 Docker build/run、依赖下载、
+- Allowed external effects：真实 Codex/OpenCode 调用、模型额度、认证临时目录、依赖下载、
   commit、push 和创建 PR。
 - Forbidden：修改主 checkout、真实项目源码/数据库、凭据入库、真实模型进入每轮 CI、自动 merge、
   Campaign、代码 Task/worktree、Governance Writer、第三种 Provider、静默 fallback。
@@ -66,8 +66,9 @@
 - Real certification：固定场景 `direct approve`、`review answer/patch/partial context/reconvene` 和
   `locked invariant conflict`；使用显式 `opencode-go/deepseek-v4-pro` 和低成本 Codex 模型。
 - Real calls are delivery-only：未来 PR CI 使用程序化 Provider；真实套件只在交付或客户端协议变化后运行。
-- Docker sandbox：只挂载 fixture repository 和一次性 Provider home，禁止挂载整个 home 或主 checkout；
-  报告记录版本、模型、image/fixture/result digest 和断言，不记录凭据或隐藏推理。
+- 认证隔离：后续用户指令取消 Docker；真实调用只使用 fixture repository、Nemeton 管理的临时 Workdir
+  和现有 Provider 凭据，不挂载或修改主 checkout。报告记录版本、模型、fixture/result digest 和断言，
+  不记录凭据或隐藏推理。
 - UI review：功能完成后依次应用 better-colors、better-typography、better-ui 和 kill-ai-slop；会议自然语言
   与当前待决内容必须保持 attention 核心。
 

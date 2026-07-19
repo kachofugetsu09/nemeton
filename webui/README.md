@@ -28,7 +28,7 @@ Project / 原始问题
     ├── Recorder synthesis
     ├── Candidate 逐项处置
     ├── 可选反馈
-    └── Coding Design Handoff
+    └── 可复制的 Markdown Coding Design Handoff
 ```
 
 组件只保留 React、dnd-kit 和 Lucide。表单使用浏览器原生控件；视觉 token 和布局位于 `src/index.css`。

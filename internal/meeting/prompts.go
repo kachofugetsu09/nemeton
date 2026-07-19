@@ -76,6 +76,12 @@ Return one JSON object and no prose outside it. Always include every key; use em
 `, meeting.Brief, meeting.Title, meeting.Cycle, materials)
 }
 
+func recorderReviewCorrectionPrompt(prompt, violation string) string {
+	return fmt.Sprintf(`%s
+
+Protocol correction: your previous response was rejected because %s. Re-evaluate the same durable review state and return one protocol-compliant decision. Do not ask the user to name the action and do not weaken structured dispositions.`, prompt, violation)
+}
+
 func verifierPrompt(meeting store.Meeting, materials string) string {
 	return fmt.Sprintf(`You are the Verifier in a Nemeton design meeting. Check facts, hard constraints, source traceability, combination consistency, and executable acceptance. Do not rewrite the synthesis and do not add a fourth design.
 
