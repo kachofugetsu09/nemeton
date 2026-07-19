@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -48,7 +49,16 @@ func TestWebSocketBacklogLiveDeltaAndResumeOverUnixSocket(t *testing.T) {
 	mux.HandleFunc("/ws", func(response http.ResponseWriter, request *http.Request) {
 		_ = hub.Serve(source, response, request, meetingID)
 	})
-	socket := filepath.Join(t.TempDir(), "hub.sock")
+	root, err := os.MkdirTemp("/tmp", "nemeton-ws-")
+	if err != nil {
+		t.Fatalf("create short WebSocket test directory: %v", err)
+	}
+	t.Cleanup(func() {
+		if err := os.RemoveAll(root); err != nil {
+			t.Errorf("remove short WebSocket test directory: %v", err)
+		}
+	})
+	socket := filepath.Join(root, "hub.sock")
 	listener, err := net.Listen("unix", socket)
 	if err != nil {
 		t.Fatalf("listen on Unix Socket: %v", err)
