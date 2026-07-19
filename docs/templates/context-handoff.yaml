@@ -1,0 +1,33 @@
+schema_version: 1
+repository:
+  root: "<absolute repository path>"
+  worktree: "<absolute worktree path>"
+  branch: "<branch>"
+  base_commit: "<full sha>"
+workflow:
+  current_stage: "<Read|Ownership|Isolate|Contract|Implement|Verify|Review|Reconcile|Deliver>"
+  last_user_approval:
+    statement: "<verbatim approval or concise exact scope>"
+    recorded_at: "<RFC3339 timestamp>"
+facts:
+  confirmed:
+    - statement: "<fact>"
+      evidence: "<absolute path:line, command result, schema, or sha>"
+  user_confirmed_intent:
+    - statement: "<intent>"
+      source: "<decision or approval reference>"
+unknowns:
+  - question: "<unresolved question>"
+    must_not_assume: "<semantic boundary>"
+changes:
+  modified_files: []
+  backups: []
+  current_diff: "<git diff reference or none>"
+validation:
+  commands: []
+  reports: []
+  unverified: []
+next:
+  action: "<single next action>"
+  stop_conditions: []
+  delivery_target: "<working tree|commit|push|PR|merge|deployment>"

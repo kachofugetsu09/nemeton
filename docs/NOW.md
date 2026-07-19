@@ -10,16 +10,9 @@
 
 产品边界已经稳定，可以开始实现第一个自举切片。当前工作只建立项目身份、Project Reality、SQLite 事件事实源和 replay。Swarm、模型 Provider、worktree 执行和 UI 都排在后续里程碑。
 
-## 已接受决定
+## 当前约束来源
 
-- 默认三个平等 Design Agent。
-- Design Seat 按 `0..N` 建模，可以水平扩展。
-- 语义控制面的领域事件是事实源，关系表、`NOW.md` 和 UI 状态都是投影。
-- 本地 v1 使用 SQLite，`nemetond` 是唯一逻辑写入者。
-- Go 承担 daemon、CLI、状态机、Git 子进程和本地 API。
-- 人类只在会议中确认新的产品语义、风险边界和不可编码的取舍。
-- Agent 执行发生在 Nemeton 管理的独立 worktree 中。
-- hard gate 依靠可失败的检查、运行证据和目标 SHA，不依靠 Reviewer 的主观 verdict。
+本里程碑受 [`decisions/README.md`](decisions/README.md) 中的 Accepted decisions 约束，尤其是事件事实源、SQLite 单写入者和 Go 模块化单体决定。`NOW.md` 不复制长期决定正文，也不能改变其语义。
 
 ## 当前目标：Milestone 0
 
