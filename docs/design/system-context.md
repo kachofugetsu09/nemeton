@@ -11,7 +11,7 @@
 - 源码仓库位于 `/mnt/data/coding/nemeton`。
 - 初始基线为 `53fc381cc9f4f76a7844ff964bd3fc86f175dff8`，分支为 `main`。
 - Git remote `origin` 为 `git@github.com:kachofugetsu09/nemeton.git`。
-- 初始基线只有 README 和文档。当前仓库已经实现 Go module、业务代码、SQLite schema/migration、真实测试和 Linux/macOS CI；仍没有 Docker 或常驻安装服务。
+- 初始基线只有 README 和文档。当前仓库已经实现 Go module、SQLite event/projection、Project Reality、持久化 Swarm Meeting、Codex/OpenCode Runner、隔离 Workdir、HTTP/WebSocket、CLI、真实测试和 Linux/macOS CI；仍没有 Docker、Web UI 或常驻安装服务。
 - `.codegraph/` 不存在；是否建立索引由用户决定。
 
 这些事实描述初始化时点，不是长期产品要求。以后判断当前实现必须重新读取 Git、文件和运行证据。
@@ -46,14 +46,16 @@ CLI / future UI ───►│       nemetond        │◄── Agent / Model
                     ┌───────▼────────┐
                     │ artifact store │
                     └───────┬────────┘
-                            │ projectors
+                            │ product state / future publish projector
              ┌──────────────┴──────────────┐
              ▼                             ▼
-   NOW / Meeting / Trust          target Git repository
-      current views               code + active .nemeton/
+ Current State / Meeting          target Git repository
+    / future Trust                code + future active .nemeton/
 ```
 
-图中的 CLI、daemon、SQLite event/projection、artifact store 和只读 target Git 已在 Milestone 0 实现；Agent/Model Runner、NOW projector 和 `.nemeton/` 发布仍是 Accepted design。
+图中的 CLI、daemon、SQLite event/projection、artifact store、只读 target Git、Meeting、
+Codex/OpenCode Runner、数据库 Current State 和 WebSocket 已在 Milestone 0/1 实现；Web UI、
+Campaign/Task 执行、产品 Gate、Trust State 和 `.nemeton/` 发布仍是 Accepted design。
 
 ## 4. Capability 与状态 owner
 
@@ -72,7 +74,7 @@ CLI / future UI ───►│       nemetond        │◄── Agent / Model
 
 - 源码 repository 保存代码、工作手册和已发布的静态语义投影。
 - 用户主 checkout 是用户工作区，不是默认 Agent 执行资源。
-- governance 和 task writer 使用从准确 base SHA 创建的 Nemeton 管理 worktree。
+- Meeting Agent 已使用从 Reality Bundle 创建的独立持久 Workdir；未来 governance 和 task writer 使用从准确 base SHA 创建的 Nemeton 管理 worktree。
 - Nemeton 应用数据、SQLite、artifact、lease metadata 和运行日志位于仓库外的受控应用数据目录。
 - 缓存、临时文件和进程现场不是长期语义真源；能够删除不代表无需明确 owner 和安全条件。
 

@@ -58,7 +58,7 @@ Accepted decisions 0003、0004 及现有产品语义要求实现保持的状态�
 | 字段 | 语义 |
 | --- | --- |
 | 名称与位置 | Nemeton 当前视图文件，以及目标仓库未来的 `.nemeton/` |
-| 角色 | `NOW.md`、Meeting Result、Trust State 是当前投影；`.nemeton/` 是已激活语义的 Git 发布投影 |
+| 角色 | 数据库 Current State、Meeting Result、Trust State 是当前投影；`.nemeton/` 是已激活语义的 Git 发布投影。仓库 `docs/NOW.md` 是开发工作手册 |
 | Owner | NOW/file projector；静态语义由 governance worktree 生成并通过 integration history 激活 |
 | 增加 | 事件提交后写临时文件、`fsync` 并原子 rename；新语义条目进入新的 governance change |
 | 更新 | 投影文件可以由唯一 projector 原子替换；active Semantic Item 不原位改写，创建新版本并 supersede |
@@ -87,7 +87,7 @@ Accepted decisions 0003、0004 及现有产品语义要求实现保持的状态�
 
 | 字段 | 语义 |
 | --- | --- |
-| 名称与位置 | PID、进程句柄、SSE 连接、临时锁、heartbeat 当前值、外部 Git/进程现场和运行日志 |
+| 名称与位置 | PID、进程句柄、WebSocket 连接、临时锁、heartbeat 当前值、外部 Git/进程现场和运行日志 |
 | 角色 | 运行连续性、诊断证据或可重新探测的现场，不是可 replay 的长期语义 |
 | Owner | runner、worktree、API、进程监督和 reconcile 模块分别拥有其现场 |
 | 增加 | 进程启动、连接建立、命令执行和观测事件产生当前记录或 artifact |

@@ -47,7 +47,7 @@ Nemeton 负责维护以下工作循环：
 - 在人类无法阅读全部 diff 时维持系统级信任。
 - 通过历史会议和执行记录恢复项目语义。
 
-第一版产品形态是本地 daemon、CLI 和 HTTP/SSE API。会议 UI 在状态机稳定后接入。
+第一版产品形态是本地 daemon、CLI 和 HTTP/WebSocket API。会议 UI 在状态机稳定后接入。
 
 ## 3. 长期判断
 
@@ -405,7 +405,7 @@ Recorder 从会议中提炼 Candidate Semantic Item。每个候选保存：
 领域事件流
   ├── 引用 content-addressed artifacts
   ├── 生成 SQLite current projections
-  ├── 生成 NOW.md / Meeting Result / Trust State
+  ├── 生成确定性 Current State / Meeting Result / Trust State
   └── 生成目标仓库中的 .nemeton/ 静态语义
 ```
 
@@ -449,7 +449,7 @@ Nemeton 数据目录和 artifact store 保存恢复所需的内容：
 - 项目使命、演化范围、不变量和决定。
 - 历史会议、冲突、异议和 Human Choice。
 - Task Contract、Campaign 和验收记录。
-- `NOW.md`、Meeting Result 和 `.nemeton/` 文件。
+- Current State、Meeting Result 和 `.nemeton/` 文件。
 
 代码恢复需要额外保存 Git remote、Git bundle、commit objects、patch 或 delivery artifact。Nemeton 不根据自然语言会议重新生成并声称得到原代码。
 
@@ -473,8 +473,8 @@ Agent Runner ────┘        │            │
 - `nemetond` 是唯一逻辑数据库写入者。
 - Agent 通过 command/API 提交变化。
 - SQLite 位于本机文件系统，使用 WAL、短事务和 busy timeout。
-- UI 和 SSE 不持有长 read transaction。
-- NOW projector 是唯一文件 writer。
+- UI 和 WebSocket 不持有长 read transaction。
+- 产品 Current State 由 SQLite projection 生成，不写入目标仓库或仓库工作手册。
 - 数据库不放入 NFS 或同步目录。
 - 在线备份使用 SQLite backup API，并执行 integrity check。
 
@@ -785,13 +785,12 @@ Campaign 不预先锁死全部任务。第一轮可以包含：
 
 走通 `project open -> events -> projection -> replay`。这一阶段不修改目标仓库。
 
-### Milestone 1A：单人会议与候选语义
+### Milestone 1：持久化 Swarm Meeting 后端
 
-走通 Human Statement、Message、Evidence、Candidate Semantic Item、select/reject/defer 和 `NOW` 投影。
-
-### Milestone 1B：Swarm Meeting
-
-接入默认三个 Design Agent、sealed proposal、Reveal、Conflict、Recorder、Verifier、Ratification 和 Convergence Gate。
+走通 Human Statement、Reality Bundle、默认三个 Design Agent 的 sealed proposal、Reveal、
+Conflict、最多三轮确定性收敛、Recorder、Verifier、Candidate Semantic Item、
+select/reject/defer、数据库 Current State 和 HTTP/WebSocket。会议 UI 在后端状态机稳定后作为
+独立切片接入。
 
 ### Milestone 2：单任务执行
 

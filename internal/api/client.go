@@ -9,11 +9,16 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/kachofugetsu09/nemeton/internal/realtime"
 )
 
 type Client struct {
-	http *http.Client
+	http       *http.Client
+	socketPath string
 }
 
 func NewClient(socketPath string) *Client {
@@ -23,7 +28,62 @@ func NewClient(socketPath string) *Client {
 			return dialer.DialContext(ctx, "unix", socketPath)
 		},
 	}
-	return &Client{http: &http.Client{Transport: transport}}
+	return &Client{http: &http.Client{Transport: transport}, socketPath: socketPath}
+}
+
+func (c *Client) CreateMeeting(ctx context.Context, projectID string, request CreateMeetingRequest) (MeetingResponse, error) {
+	return c.meetingRequest(ctx, http.MethodPost, "/v1/projects/"+projectID+"/meetings", request)
+}
+
+func (c *Client) InspectMeeting(ctx context.Context, meetingID string) (MeetingResponse, error) {
+	return c.meetingRequest(ctx, http.MethodGet, "/v1/meetings/"+meetingID, nil)
+}
+
+func (c *Client) StartMeeting(ctx context.Context, meetingID string) (MeetingResponse, error) {
+	return c.meetingRequest(ctx, http.MethodPost, "/v1/meetings/"+meetingID+"/start", struct{}{})
+}
+
+func (c *Client) AnswerMeeting(ctx context.Context, meetingID string, request HumanInputRequest) (MeetingResponse, error) {
+	return c.meetingRequest(ctx, http.MethodPost, "/v1/meetings/"+meetingID+"/inputs", request)
+}
+
+func (c *Client) RatifyMeeting(ctx context.Context, meetingID string, request RatificationRequest) (MeetingResponse, error) {
+	return c.meetingRequest(ctx, http.MethodPost, "/v1/meetings/"+meetingID+"/ratifications", request)
+}
+
+func (c *Client) meetingRequest(ctx context.Context, method, path string, input any) (MeetingResponse, error) {
+	var response MeetingResponse
+	if err := c.do(ctx, method, path, input, &response); err != nil {
+		return MeetingResponse{}, err
+	}
+	return response, nil
+}
+
+func (c *Client) WatchMeeting(ctx context.Context, meetingID string, after int64) (*websocket.Conn, error) {
+	dialer := websocket.Dialer{NetDialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return (&net.Dialer{Timeout: 2 * time.Second}).DialContext(ctx, "unix", c.socketPath)
+	}}
+	connection, response, err := dialer.DialContext(ctx,
+		"ws://nemetond/v1/meetings/"+meetingID+"/ws?after_sequence="+strconv.FormatInt(after, 10), nil)
+	if err != nil {
+		if response != nil {
+			defer response.Body.Close()
+			var problem Problem
+			if json.NewDecoder(response.Body).Decode(&problem) == nil {
+				return nil, &problem
+			}
+		}
+		return nil, fmt.Errorf("connect Meeting WebSocket: %w", err)
+	}
+	return connection, nil
+}
+
+func ReadWatchMessage(connection *websocket.Conn) (realtime.Message, error) {
+	var message realtime.Message
+	if err := connection.ReadJSON(&message); err != nil {
+		return realtime.Message{}, err
+	}
+	return message, nil
 }
 
 func (c *Client) Health(ctx context.Context) (Health, error) {
@@ -40,6 +100,14 @@ func (c *Client) Open(ctx context.Context, request OpenRequest) (ProjectResponse
 
 func (c *Client) Inspect(ctx context.Context, projectID string) (ProjectResponse, error) {
 	return c.projectRequest(ctx, http.MethodGet, "/v1/projects/"+projectID, nil)
+}
+
+func (c *Client) CurrentState(ctx context.Context, projectID string) (CurrentStateResponse, error) {
+	var response CurrentStateResponse
+	if err := c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/current-state", nil, &response); err != nil {
+		return CurrentStateResponse{}, err
+	}
+	return response, nil
 }
 
 func (c *Client) Relink(ctx context.Context, projectID string, request RelinkRequest) (ProjectResponse, error) {

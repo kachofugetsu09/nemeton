@@ -2,100 +2,105 @@
 
 > 更新日期：2026-07-19
 >
-> 当前阶段：Milestone 0 已实现并由仓库级 Hard Gate 保护
+> 当前阶段：Milestone 1 持久化 Swarm Meeting 后端已实现，下一切片是 Local Web UI
 >
-> 临时说明：Nemeton 自身的 projector 完成前，这份文件由人维护。随后由事件流生成，Agent 不得并发编辑。
+> 边界：本文件是 Babel 仓库工作手册；产品 Current State 存在 SQLite，不生成产品 `NOW.md`
 
 ## 当前结论
 
-产品边界和 Milestone 0 实现合同已经落地。仓库现有实现建立了项目身份、Project Reality、SQLite 事件事实源、artifact、投影和 replay；Swarm、模型 Provider、worktree 执行和 UI 仍排在后续里程碑。
+Milestone 0 基线继续由仓库级 `semantic-gate` 保护。Milestone 1 后端在其上增加了
+Reality Bundle、持久 Meeting、Codex/OpenCode Provider、每席位隔离 Workdir、有界收敛、
+Recorder、Verifier、候选语义人工处置、数据库 Current State、HTTP/WebSocket 和 CLI。
 
 当前实现合同是
-[`contracts/2026-07-19-milestone-0.md`](contracts/2026-07-19-milestone-0.md)，
+[`contracts/2026-07-19-milestone-1a.md`](contracts/2026-07-19-milestone-1a.md)，
 详细设计是
-[`design/milestone-0-foundation.md`](design/milestone-0-foundation.md)。
-本里程碑同时按 Accepted Decision 0008 初始化仓库级 `semantic-gate`，使原子事务和
-Git Reality、Artifact、Event、Projection、Replay 的联合语义成为 `main` 的 required
-CI check。
+[`design/milestone-1a-meeting-backend.md`](design/milestone-1a-meeting-backend.md)，
+运行时决定是
+[`decisions/0009-milestone-1-meeting-runtime.md`](decisions/0009-milestone-1-meeting-runtime.md)。
+一次性真实 Provider 认证记录见
+[`design/milestone-1-live-provider-certification.md`](design/milestone-1-live-provider-certification.md)。
 
-## 当前约束来源
-
-本里程碑受 [`decisions/README.md`](decisions/README.md) 中的 Accepted decisions 约束，尤其是事件事实源、SQLite 单写入者和 Go 模块化单体决定。`NOW.md` 不复制长期决定正文，也不能改变其语义。
-
-## 已交付：Milestone 0
+## 已交付：Milestone 1 后端
 
 ```text
-用户指定本地 Git 路径
-          │
-          ▼
-解析 top-level / common-dir / HEAD / tree / branch
-          │
-          ▼
-识别或创建稳定 Project ID
-          │
-          ▼
-追加 ProjectRegistered / RepositoryBound / RealityCaptured
-          │
-          ▼
-Reducer 生成 ProjectProjection
-          │
-          ▼
-project inspect 返回当前状态
-          │
-          ▼
-删除投影并 replay，得到相同结果
+冻结 Git Reality（含 staged / unstaged / untracked）
+                    │
+                    ▼
+       3 个 Design Seat 密封并行提案
+                    │
+                    ▼
+       Reveal ──► 最多 3 轮有界讨论
+                    │
+          ┌─────────┴─────────┐
+          ▼                   ▼
+       全体同意          needs_user_input
+          │                   │
+          ▼                   └──► Human input 后新 cycle
+     Recorder ──► Verifier
+                    │
+                    ▼
+        Human select / reject / defer
+                    │
+                    ▼
+                concluded
 ```
 
-### 交付事实
+### 持久化与恢复
 
-- Go module。
-- `nemetond` 和 `nemeton` 两个入口。
-- SQLite migration runner。
-- append-only domain event store。
-- Project、Repository Binding、Reality Revision 的 reducer 和投影。
-- `nemeton project open <path>`。
-- `nemeton project inspect <project-id>`。
-- daemon single-instance lock。
-- 启动时的只读 reconcile 骨架。
-- `scripts/semantic-gate` 和 Linux/macOS GitHub Actions Hard Gate。
+- Meeting、Participant、Agent Run、Content、Conflict、Candidate 和 Current State 都由
+  append-only 事件生成 SQLite projection。
+- 每次事件追加、所有受影响 projection 和 Current State digest 在同一事务内提交。
+- replay 只重算状态，不重新调用 Provider、不执行 Git 写入，也不重复外部副作用。
+- daemon 恢复时把未完成 Agent Run 标记为 interrupted，再从持久 Meeting 状态继续。
+- WebSocket 发送已提交 domain event 和临时 Runner delta；客户端以 project sequence 断线补读。
 
-### 持续验收
+### Provider 与隔离
 
-- 主 checkout 和 linked worktree 返回同一 Project ID。
-- 路径移动后可以显式 relink，Project ID 不变。
-- dirty checkout 可以被观察，dirty 内容不能进入 committed Reality。
-- 非 Git 目录、损坏 common-dir 和歧义 integration branch 明确失败。
-- 全流程不修改用户选择的仓库。
-- daemon 重启后 Project 与 Reality 保持一致。
-- 删除 Project/Reality 投影后，replay 能重建相同的规范化状态和 digest。
-- replay 不执行 Git 写操作、外部 API、模型调用或其他副作用。
-- 事件追加与投影更新在同一事务中；真实投影失败不得留下事件或推进 stream version。
-- Git Reality、artifact、event、projection、reconcile 和 replay 的联合语义由真实边界测试覆盖。
+- 默认席位：Designer=Codex、Maintainer=OpenCode、Adversary=Codex、Recorder=OpenCode、
+  Verifier=Codex；创建 Meeting 时可显式覆盖为 Codex 或 OpenCode，不做 fallback。
+- 每个席位拥有独立、持久的 repository clone、logs、output 和 Provider session；
+  Design proposal 在 Reveal 前互不可见。`home/` 与 `provider-home/` 目录已预留，但
+  当前真实客户端继承宿主环境和凭据，不把它们宣称为安全隔离。
+- Provider 获得编码 Agent 的完整工具权限，可以在自己的 Workdir 读写和实验。
+- Nemeton 不把角色提示词误称为安全沙箱；目标 source checkout 在调用后重新观察，发生变化则失败。
+- 真实 Codex/OpenCode 只用于本次交付认证；CI 使用执行真实子进程协议的程序化测试 Provider，
+  不消耗模型额度。运行时对本机已安装客户端采用乐观兼容，版本或协议不兼容时明确失败。
 
-## 已确认的仓库设置
+### API 与 CLI
 
-- Go module：`github.com/kachofugetsu09/nemeton`；最低 Go `1.25.0`。
-- 最低 Git `2.41.0`。
-- Linux、macOS 正式支持；其他 Unix best effort；Windows 不支持。
-- 应用数据目录遵循 XDG/macOS Application Support，并支持 `NEMETON_DATA_DIR`。
-- managed worktree root 默认为 `$HOME/nemeton-workspaces`，支持
-  `NEMETON_WORKTREES_ROOT`；Milestone 0 不创建工作树。
-- integration branch 只从显式本地分支、唯一 local remote HEAD 或唯一本地分支确认，
-  无法唯一判断时失败。
+- `POST /v1/projects/{id}/meetings` 创建 Meeting。
+- `GET /v1/meetings/{id}` 读取完整 Meeting snapshot。
+- `POST /v1/meetings/{id}/start` 启动。
+- `POST /v1/meetings/{id}/inputs` 在未收敛或 Verifier 阻塞后提供 Human input。
+- `POST /v1/meetings/{id}/ratifications` 处置 Candidate。
+- `GET /v1/meetings/{id}/ws?after_sequence=<n>` 订阅和补读事件。
+- `GET /v1/projects/{id}/current-state` 读取确定性 Current State。
+- CLI 提供 `project state` 与 `meeting create/show/start/run/watch/answer/ratify`。
 
-## 当前禁止扩张的范围
+## 持续验收
 
-- 不实现 Swarm Meeting。
-- 不接模型 Provider。
-- 不创建 task worktree。
-- 不创建 PR。
-- 不实现 PostgreSQL backend。
-- 不构建 Web UI。
-- 不引入消息队列、向量数据库、微服务或通用插件系统。
-- 不为未来数据库编写抽象 repository 层。
+- Milestone 0 的 Project/Reality/artifact/event/projection/replay 联合语义保持不变。
+- dirty Reality 能逐字节恢复到每个席位，席位间实验互不可见，目标 source checkout 零修改。
+- 三个 Design proposal 并发启动但密封；只有完全相同的规范化 canonical statement 且全员
+  `accept` 才收敛。
+- 第三轮仍不一致时确定进入 `needs_user_input`；Human input 开启新 cycle。
+- Recorder Candidate 必须引用真实持久 content；Verifier 阻塞时不得进入人工批准。
+- Candidate 必须逐项 `selected`、`rejected` 或 `deferred`；selected 不等于 active。
+- 真实 SQLite 故障证明 event、projection、Current State 和 stream version 原子回滚。
+- daemon/API/Unix socket/WebSocket/restart/replay 的端到端组合路径由真实边界测试覆盖。
+- 仓库唯一硬性验证入口仍是 `scripts/semantic-gate`，required check 名称仍是 `semantic-gate`。
 
-## Milestone 0 完成后的下一步
+## 下一步
 
-Milestone 0 完成后先实现 Codex 与 OpenCode 的 provider-native Runner 边界，再进入
-Milestone 1 的单人会议、发言、候选语义和 `NOW` 投影。Runner 不提前进入当前
-里程碑。
+在不复制业务状态机的前提下，为当前 Meeting HTTP/WebSocket 后端增加 Local Web UI。
+UI 只消费 daemon API 和数据库投影，不成为新的事实源。Campaign、Task Contract、任务
+worktree、产品 Gate 引擎和 merge queue 仍属于 Milestone 2 及之后。
+
+## 当前不包含
+
+- Web UI。
+- Campaign、Task Contract 和任务调度。
+- 治理 worktree、任务 worktree、PR 或 merge queue。
+- Nemeton 产品 Gate、Integration Gate 或 Release Gate 引擎。
+- Docker、Windows、PostgreSQL、消息队列、向量数据库、微服务或通用插件系统。

@@ -143,17 +143,38 @@ func backupDatabase(ctx context.Context, db *sql.DB, backupRoot string) (string,
 }
 
 func verifyBackup(ctx context.Context, path string) error {
-	database, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
+	database, err := sql.Open("sqlite", "file:"+path+"?mode=rw")
 	if err != nil {
 		return fmt.Errorf("open migration backup: %w", err)
 	}
-	defer database.Close()
+	database.SetMaxOpenConns(1)
+	var journalMode string
+	if err := database.QueryRowContext(ctx, `PRAGMA journal_mode=DELETE`).Scan(&journalMode); err != nil {
+		database.Close()
+		return fmt.Errorf("make migration backup standalone: %w", err)
+	}
+	if strings.ToLower(journalMode) != "delete" {
+		database.Close()
+		return fmt.Errorf("migration backup journal mode is %s, want delete", journalMode)
+	}
 	var result string
 	if err := database.QueryRowContext(ctx, `PRAGMA integrity_check`).Scan(&result); err != nil {
+		database.Close()
 		return fmt.Errorf("verify migration backup integrity: %w", err)
 	}
 	if result != "ok" {
+		database.Close()
 		return fmt.Errorf("migration backup integrity check failed: %s", result)
+	}
+	if err := database.Close(); err != nil {
+		return fmt.Errorf("close verified migration backup: %w", err)
+	}
+	for _, suffix := range []string{"-wal", "-shm"} {
+		if _, err := os.Stat(path + suffix); err == nil {
+			return fmt.Errorf("migration backup retained SQLite sidecar %s", path+suffix)
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("inspect migration backup sidecar: %w", err)
+		}
 	}
 	return nil
 }

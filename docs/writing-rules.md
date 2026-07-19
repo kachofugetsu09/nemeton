@@ -45,9 +45,9 @@
 - 同一语义出现冲突时保留双方原文，记录冲突并停止；不要选择更方便实现的一份。
 - 错误决定通过新记录 amendment 或 supersede，不原地删除历史。
 
-## 5. 当前文档与未来投影
+## 5. 工作手册与产品 Current State
 
-在 NOW projector 实现前，`NOW.md` 由任务交付者串行维护。projector 成为唯一 writer 后，人工和 Agent 只能通过领域 command 改变其上游事件，不能直接编辑生成文件。
+仓库的 `docs/NOW.md` 始终是 Babel 工作手册，由任务交付者串行维护。Nemeton 产品的 Current State 是 SQLite 事件流生成的 structured projection 和确定性 document/digest；两者不是同一对象。产品状态只能通过领域 command 改变，不能通过编辑 `docs/NOW.md` 改变。
 
 “可重建”只说明存在确定输入和算法，不等于任何 Agent 可以物理删除。删除、恢复和 replay 权限以持久化状态地图和 Accepted decision 为准。
 

@@ -78,6 +78,10 @@ func (s *Service) Inspect(ctx context.Context, projectID string) (store.Snapshot
 	return s.store.Inspect(ctx, projectID)
 }
 
+func (s *Service) CurrentState(ctx context.Context, projectID string) (store.CurrentState, error) {
+	return s.store.CurrentState(ctx, projectID)
+}
+
 func (s *Service) Relink(ctx context.Context, projectID, path, requestedBranch string) (store.Snapshot, error) {
 	// 1. Load the stable Project before accepting a new repository binding.
 	current, err := s.store.Inspect(ctx, projectID)

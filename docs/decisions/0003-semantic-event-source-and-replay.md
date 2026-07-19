@@ -5,6 +5,8 @@
 > 日期：2026-07-19
 >
 > 决策者：Human
+>
+> 修订：Decision 0009 将产品 `NOW.md` 投影改为数据库 Current State，并将 SSE 运行连接改为 WebSocket；本文件中的旧名称仅保留为历史语境。
 
 ## 决定
 
@@ -44,7 +46,7 @@ Git 保存代码和已经发布到项目历史的语义投影。事件历史保�
 以下状态由当前关系表、进程监督和启动 reconcile 共同维护：
 
 - PID 和进程句柄。
-- SSE 连接。
+- WebSocket 连接。
 - 临时锁和 SQLite busy 状态。
 - heartbeat 的当前观测值。
 - 可以从 Git、文件系统或进程表再次探测的现场。
