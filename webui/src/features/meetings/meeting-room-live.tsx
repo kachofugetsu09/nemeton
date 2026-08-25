@@ -1,0 +1,119 @@
+import { useMemo } from "react"
+import { Circle, LoaderCircle } from "lucide-react"
+import type { MeetingContent, MeetingSnapshot, RealtimeConnection } from "@/lib/api"
+
+function parse(body?: string): Record<string, unknown> {
+  if (!body) return {}
+  try { return JSON.parse(body) as Record<string, unknown> } catch { return { text: body } }
+}
+
+function participantName(snapshot: MeetingSnapshot, id?: string) {
+  const participant = snapshot.participants.find((item) => item.id === id)
+  if (!participant) return "You"
+  return participant.seat === "recorder" ? "Recorder" : participant.seat
+}
+
+function naturalText(content: MeetingContent) {
+  const body = parse(content.body)
+  if (content.kind === "proposal") return String(body.summary || "")
+  if (content.kind === "position") return String(body.rationale || body.canonical_statement || body.text || "")
+  if (content.kind === "recorder_opening") return String(body.opening || body.response || body.text || "")
+  if (content.kind === "recorder_answer") return String(body.response || body.text || "")
+  if (content.kind === "review_comment" || content.kind === "human_input") return String(body.text || content.body || "")
+  return ""
+}
+
+function readableProposalReferences(text: string, snapshot: MeetingSnapshot) {
+  return snapshot.contents.filter((content) => content.kind === "proposal").reduce((current, content) => {
+    const label = `@${participantName(snapshot, content.participant_id)} 的提案`
+    return current.replaceAll(`提案 ${content.id}`, label).replaceAll(content.id, label)
+  }, text)
+}
+
+export function MeetingRoomLive({ activities, connection, snapshot }: {
+  activities: Record<string, string>
+  connection: RealtimeConnection
+  snapshot: MeetingSnapshot
+}) {
+  const proposals = useMemo(() => snapshot.contents.filter((item) => item.kind === "proposal"), [snapshot.contents])
+  const discussion = useMemo(() => snapshot.contents.filter((item) =>
+    ["human_input", "proposal", "position", "recorder_opening", "recorder_answer", "review_comment"].includes(item.kind),
+  ), [snapshot.contents])
+  const running = snapshot.participants.filter((participant) => participant.status === "running")
+
+  return (
+    <div className="meeting-grid">
+      <aside className="roster-panel">
+        <div className="panel-heading"><span>参与者</span><small>{snapshot.participants.length}</small></div>
+        <div className="roster-list">
+          {snapshot.participants.map((participant) => (
+            <div className="roster-person" key={participant.id}>
+              <span className="avatar">{participant.seat.slice(0, 1).toUpperCase()}</span>
+              <span><strong>{participantName(snapshot, participant.id)}</strong><small>{participant.provider} · {participant.model}</small></span>
+              {participant.status === "running" ? <LoaderCircle className="spin" /> : <Circle />}
+            </div>
+          ))}
+        </div>
+      </aside>
+
+      <section className="discussion-panel" aria-label="会议讨论">
+        <div className="conversation">
+          {discussion.map((content) => {
+            const speaker = participantName(snapshot, content.participant_id)
+            return (
+              <article className="message" data-human={speaker === "You" || undefined} key={content.id}>
+                <div className="message-meta"><strong>{speaker === "You" ? "You" : `@${speaker}`}</strong><span>Cycle {content.cycle} · Round {content.round}</span></div>
+                <p>{readableProposalReferences(naturalText(content), snapshot)}</p>
+              </article>
+            )
+          })}
+          {snapshot.meeting.status === "failed" && snapshot.meeting.human_question && (
+            <section className="meeting-failure" role="alert">
+              <strong>会议未完成</strong>
+              <p>{snapshot.meeting.human_question}</p>
+            </section>
+          )}
+          {(running.length > 0 || connection !== "live") && (
+            <section className="agent-activity" aria-label="Agent 当前活动">
+              <div className="connection-state" data-state={connection}>
+                <span />{connection === "live" ? "实时连接" : connection === "reconnecting" ? "连接中断，正在恢复" : "正在连接"}
+              </div>
+              {running.map((participant) => (
+                <div className="activity-row" key={participant.id}>
+                  <LoaderCircle className="spin" />
+                  <strong>@{participantName(snapshot, participant.id)}</strong>
+                  <span>{activities[participant.id] || "正在开始当前轮次"}</span>
+                </div>
+              ))}
+            </section>
+          )}
+          {discussion.length === 0 && running.length === 0 && (
+            <div className="empty-conversation">
+              <LoaderCircle className="spin" />
+              <strong>会议正在展开</strong>
+              <p>Agent 的自然语言讨论会出现在这里。Proposal 保持在右侧，不打断对话。</p>
+            </div>
+          )}
+        </div>
+      </section>
+
+      <aside className="proposal-panel-live">
+        <div className="panel-heading"><span>Proposals</span><small>{proposals.length}</small></div>
+        <div className="proposal-list">
+          {proposals.length === 0 && <p className="quiet-empty">等待 Design Agent 提交。</p>}
+          {proposals.map((content) => {
+            const body = parse(content.body)
+            const candidates = Array.isArray(body.candidate_items) ? body.candidate_items as Array<{ statement?: string }> : []
+            return (
+              <article className="proposal-card-live" key={content.id}>
+                <div className="proposal-author">@{participantName(snapshot, content.participant_id)}</div>
+                <h3>候选语义</h3>
+                {candidates.map((candidate, index) => <p key={index}>{candidate.statement}</p>)}
+              </article>
+            )
+          })}
+        </div>
+      </aside>
+    </div>
+  )
+}

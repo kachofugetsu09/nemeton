@@ -15,9 +15,17 @@ import (
 func applyMeetingEvent(ctx context.Context, tx *sql.Tx, item event.Envelope) (bool, error) {
 	var meetingID string
 	switch item.EventType {
-	case event.MeetingCreated:
+	case event.MeetingCreated, event.MeetingCreatedV2:
 		var payload event.MeetingCreatedPayload
-		if err := decodePayload(item, &payload); err != nil {
+		protocolVersion := 1
+		if item.EventType == event.MeetingCreatedV2 {
+			var versioned event.MeetingCreatedV2Payload
+			if err := decodePayload(item, &versioned); err != nil {
+				return true, err
+			}
+			payload = versioned.MeetingCreatedPayload
+			protocolVersion = versioned.ProtocolVersion
+		} else if err := decodePayload(item, &payload); err != nil {
 			return true, err
 		}
 		meetingID = payload.MeetingID
@@ -29,31 +37,44 @@ func applyMeetingEvent(ctx context.Context, tx *sql.Tx, item event.Envelope) (bo
             INSERT INTO meetings(
                 id, project_id, reality_id, kind, title, brief, status,
                 max_rounds, cycle, current_round, reality_bundle_digest,
-                human_question, result_digest, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', ?, ?)`,
+                human_question, result_digest, result_content_id,
+                approved_result_digest, protocol_version, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', '', '', '', ?, ?, ?)`,
 			payload.MeetingID, payload.ProjectID, payload.RealityID, payload.Kind,
 			payload.Title, payload.Brief, payload.Status, payload.MaxRounds,
 			payload.Cycle, payload.CurrentRound, payload.RealityBundleDigest,
-			payload.CreatedAt, payload.CreatedAt)
+			protocolVersion, payload.CreatedAt, payload.CreatedAt)
 		if err != nil {
 			return true, wrapReducerError(item, err)
 		}
-	case event.ParticipantAdded:
+	case event.ParticipantAdded, event.ParticipantAddedV2:
 		var payload event.MeetingParticipantAddedPayload
-		if err := decodePayload(item, &payload); err != nil {
+		options := map[string]string{}
+		if item.EventType == event.ParticipantAddedV2 {
+			var versioned event.MeetingParticipantAddedV2Payload
+			if err := decodePayload(item, &versioned); err != nil {
+				return true, err
+			}
+			payload = versioned.MeetingParticipantAddedPayload
+			options = versioned.ProviderOptions
+		} else if err := decodePayload(item, &payload); err != nil {
 			return true, err
 		}
 		meetingID = payload.MeetingID
 		if err := requireReference(ctx, tx, `SELECT COUNT(*) FROM meetings WHERE id = ?`, "Meeting", payload.MeetingID); err != nil {
 			return true, err
 		}
-		_, err := tx.ExecContext(ctx, `
+		optionsJSON, err := json.Marshal(options)
+		if err != nil {
+			return true, fmt.Errorf("encode Provider options: %w", err)
+		}
+		_, err = tx.ExecContext(ctx, `
             INSERT INTO meeting_participants(
                 id, meeting_id, seat, role, provider, model, status,
-                session_id, workdir, proposal_digest, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, '', ?)`,
+                session_id, workdir, proposal_digest, provider_options_json, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, '', ?, '', ?, ?)`,
 			payload.ParticipantID, payload.MeetingID, payload.Seat, payload.Role,
-			payload.Provider, payload.Model, payload.Status, payload.Workdir, payload.AddedAt)
+			payload.Provider, payload.Model, payload.Status, payload.Workdir, optionsJSON, payload.AddedAt)
 		if err != nil {
 			return true, wrapReducerError(item, err)
 		}
@@ -66,9 +87,12 @@ func applyMeetingEvent(ctx context.Context, tx *sql.Tx, item event.Envelope) (bo
 		result, err := tx.ExecContext(ctx, `
             UPDATE meetings
             SET status = ?, cycle = ?, current_round = ?, human_question = ?,
-                result_digest = ?, updated_at = ?
+				result_digest = CASE WHEN ? = '' THEN result_digest ELSE ? END,
+				result_content_id = CASE WHEN ? = '' THEN result_content_id ELSE ? END,
+				updated_at = ?
             WHERE id = ?`, payload.Status, payload.Cycle, payload.CurrentRound,
-			payload.HumanQuestion, payload.ResultDigest, payload.UpdatedAt, payload.MeetingID)
+			payload.HumanQuestion, payload.ResultDigest, payload.ResultDigest, payload.ResultContentID,
+			payload.ResultContentID, payload.UpdatedAt, payload.MeetingID)
 		if err != nil {
 			return true, wrapReducerError(item, err)
 		}
@@ -227,13 +251,52 @@ func applyMeetingEvent(ctx context.Context, tx *sql.Tx, item event.Envelope) (bo
 		meetingID = payload.MeetingID
 		result, err := tx.ExecContext(ctx, `
             UPDATE semantic_candidates
-            SET status = ?, updated_at = ?
-            WHERE id = ? AND meeting_id = ?`, payload.Status, payload.UpdatedAt,
-			payload.CandidateID, payload.MeetingID)
+			SET status = ?, design_disposition = CASE WHEN ? = '' THEN design_disposition ELSE ? END,
+				context_disposition = CASE WHEN ? = '' THEN context_disposition ELSE ? END,
+				updated_at = ?
+            WHERE id = ? AND meeting_id = ?`, payload.Status,
+			payload.DesignDisposition, payload.DesignDisposition,
+			payload.ContextDisposition, payload.ContextDisposition,
+			payload.UpdatedAt, payload.CandidateID, payload.MeetingID)
 		if err != nil {
 			return true, wrapReducerError(item, err)
 		}
 		if err := requireOneRow(result, "Candidate", payload.CandidateID); err != nil {
+			return true, err
+		}
+	case event.MeetingReviewed:
+		var payload event.MeetingReviewedPayload
+		if err := decodePayload(item, &payload); err != nil {
+			return true, err
+		}
+		meetingID = payload.MeetingID
+		for _, review := range payload.Items {
+			result, err := tx.ExecContext(ctx, `
+				UPDATE semantic_candidates
+				SET status = ?, design_disposition = ?, context_disposition = ?, updated_at = ?
+				WHERE id = ? AND meeting_id = ?`, candidateStatus(review.DesignDisposition),
+				review.DesignDisposition, review.ContextDisposition, payload.ReviewedAt,
+				review.CandidateID, payload.MeetingID)
+			if err != nil {
+				return true, wrapReducerError(item, err)
+			}
+			if err := requireOneRow(result, "Candidate", review.CandidateID); err != nil {
+				return true, err
+			}
+		}
+	case event.MeetingResultApproved:
+		var payload event.MeetingResultApprovedPayload
+		if err := decodePayload(item, &payload); err != nil {
+			return true, err
+		}
+		meetingID = payload.MeetingID
+		result, err := tx.ExecContext(ctx, `
+			UPDATE meetings SET approved_result_digest = ?, updated_at = ? WHERE id = ?`,
+			payload.ResultDigest, payload.ApprovedAt, payload.MeetingID)
+		if err != nil {
+			return true, wrapReducerError(item, err)
+		}
+		if err := requireOneRow(result, "Meeting", payload.MeetingID); err != nil {
 			return true, err
 		}
 	default:
@@ -245,6 +308,19 @@ func applyMeetingEvent(ctx context.Context, tx *sql.Tx, item event.Envelope) (bo
 		return true, wrapReducerError(item, err)
 	}
 	return true, nil
+}
+
+func candidateStatus(disposition string) string {
+	switch disposition {
+	case "accepted":
+		return "selected"
+	case "rejected":
+		return "rejected"
+	case "deferred":
+		return "deferred"
+	default:
+		return "proposed"
+	}
 }
 
 func requireReference(ctx context.Context, tx *sql.Tx, query, kind string, args ...any) error {
@@ -312,11 +388,13 @@ func meetingQuery(ctx context.Context, source queryer, meetingID string) (Meetin
 	err := source.QueryRowContext(ctx, `
         SELECT id, project_id, reality_id, kind, title, brief, status,
                max_rounds, cycle, current_round, reality_bundle_digest,
-               human_question, result_digest, created_at, updated_at
+               human_question, result_digest, result_content_id,
+			   approved_result_digest, protocol_version, created_at, updated_at
         FROM meetings WHERE id = ?`, meetingID).Scan(&item.ID, &item.ProjectID,
 		&item.RealityID, &item.Kind, &item.Title, &item.Brief, &item.Status,
 		&item.MaxRounds, &item.Cycle, &item.CurrentRound,
 		&item.RealityBundleDigest, &item.HumanQuestion, &item.ResultDigest,
+		&item.ResultContentID, &item.ApprovedResultDigest, &item.ProtocolVersion,
 		&item.CreatedAt, &item.UpdatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Meeting{}, &Error{Code: "meeting_not_found", Detail: fmt.Sprintf("Meeting not found: %s", meetingID)}
@@ -330,7 +408,7 @@ func meetingQuery(ctx context.Context, source queryer, meetingID string) (Meetin
 func participantQuery(ctx context.Context, source queryer, meetingID string) ([]MeetingParticipant, error) {
 	rows, err := source.QueryContext(ctx, `
         SELECT id, meeting_id, seat, role, provider, model, status, session_id,
-               workdir, proposal_digest, updated_at
+               workdir, proposal_digest, provider_options_json, updated_at
         FROM meeting_participants WHERE meeting_id = ? ORDER BY seat`, meetingID)
 	if err != nil {
 		return nil, fmt.Errorf("read Meeting participants: %w", err)
@@ -339,10 +417,14 @@ func participantQuery(ctx context.Context, source queryer, meetingID string) ([]
 	var result []MeetingParticipant
 	for rows.Next() {
 		var item MeetingParticipant
+		var options []byte
 		if err := rows.Scan(&item.ID, &item.MeetingID, &item.Seat, &item.Role,
 			&item.Provider, &item.Model, &item.Status, &item.SessionID,
-			&item.Workdir, &item.ProposalDigest, &item.UpdatedAt); err != nil {
+			&item.Workdir, &item.ProposalDigest, &options, &item.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan Meeting participant: %w", err)
+		}
+		if err := json.Unmarshal(options, &item.ProviderOptions); err != nil {
+			return nil, &Error{Code: "store_corrupt", Detail: fmt.Sprintf("decode Provider options: %v", err), Err: err}
 		}
 		result = append(result, item)
 	}
@@ -434,7 +516,7 @@ func conflictQuery(ctx context.Context, source queryer, meetingID string) ([]Mee
 func candidateQuery(ctx context.Context, source queryer, meetingID string) ([]SemanticCandidate, error) {
 	rows, err := source.QueryContext(ctx, `
         SELECT id, meeting_id, kind, statement, source_refs_json, status,
-               rationale, created_at, updated_at
+		       design_disposition, context_disposition, rationale, created_at, updated_at
         FROM semantic_candidates WHERE meeting_id = ? ORDER BY id`, meetingID)
 	if err != nil {
 		return nil, fmt.Errorf("read Semantic Candidates: %w", err)
@@ -445,7 +527,8 @@ func candidateQuery(ctx context.Context, source queryer, meetingID string) ([]Se
 		var item SemanticCandidate
 		var refs []byte
 		if err := rows.Scan(&item.ID, &item.MeetingID, &item.Kind,
-			&item.Statement, &refs, &item.Status, &item.Rationale,
+			&item.Statement, &refs, &item.Status, &item.DesignDisposition,
+			&item.ContextDisposition, &item.Rationale,
 			&item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan Semantic Candidate: %w", err)
 		}
@@ -461,7 +544,8 @@ func (s *Store) ResumableMeetings(ctx context.Context) ([]string, error) {
 	rows, err := s.db.QueryContext(ctx, `
         SELECT id FROM meetings
         WHERE status IN ('preparing', 'sealed_proposals', 'revealed',
-                         'deliberating', 'recording', 'verifying')
+						 'deliberating', 'recording', 'verifying',
+						 'recorder_reviewing', 'reconvening')
         ORDER BY created_at`)
 	if err != nil {
 		return nil, fmt.Errorf("read resumable Meetings: %w", err)
@@ -507,11 +591,12 @@ func (s *Store) MeetingEventsAfter(ctx context.Context, meetingID string, after 
 }
 
 type currentStateDocument struct {
-	Schema     string              `json:"schema"`
-	ProjectID  string              `json:"project_id"`
-	Sequence   int64               `json:"sequence"`
-	Meetings   []Meeting           `json:"meetings"`
-	Candidates []SemanticCandidate `json:"candidates"`
+	Schema          string              `json:"schema"`
+	ProjectID       string              `json:"project_id"`
+	Sequence        int64               `json:"sequence"`
+	Meetings        []Meeting           `json:"meetings"`
+	Candidates      []SemanticCandidate `json:"candidates"`
+	ApprovedContext []SemanticCandidate `json:"approved_context"`
 }
 
 func writeCurrentState(ctx context.Context, tx *sql.Tx, projectID string, sequence int64, updatedAt string) error {
@@ -544,8 +629,14 @@ func currentStateData(ctx context.Context, source queryer, projectID string, seq
 	if err != nil {
 		return nil, "", err
 	}
-	document := currentStateDocument{Schema: "nemeton.current-state.v1", ProjectID: projectID,
-		Sequence: sequence, Meetings: meetings, Candidates: candidates}
+	approved := make([]SemanticCandidate, 0)
+	for _, candidate := range candidates {
+		if candidate.ContextDisposition == "persist" {
+			approved = append(approved, candidate)
+		}
+	}
+	document := currentStateDocument{Schema: "nemeton.current-state.v2", ProjectID: projectID,
+		Sequence: sequence, Meetings: meetings, Candidates: candidates, ApprovedContext: approved}
 	data, err := json.Marshal(document)
 	if err != nil {
 		return nil, "", fmt.Errorf("encode Current State: %w", err)
@@ -559,7 +650,8 @@ func meetingsByProject(ctx context.Context, source queryer, projectID string) ([
 	rows, err := source.QueryContext(ctx, `
         SELECT id, project_id, reality_id, kind, title, brief, status,
                max_rounds, cycle, current_round, reality_bundle_digest,
-               human_question, result_digest, created_at, updated_at
+               human_question, result_digest, result_content_id,
+			   approved_result_digest, protocol_version, created_at, updated_at
         FROM meetings WHERE project_id = ? ORDER BY created_at, id`, projectID)
 	if err != nil {
 		return nil, fmt.Errorf("read Current State Meetings: %w", err)
@@ -571,7 +663,8 @@ func meetingsByProject(ctx context.Context, source queryer, projectID string) ([
 		if err := rows.Scan(&item.ID, &item.ProjectID, &item.RealityID,
 			&item.Kind, &item.Title, &item.Brief, &item.Status, &item.MaxRounds,
 			&item.Cycle, &item.CurrentRound, &item.RealityBundleDigest,
-			&item.HumanQuestion, &item.ResultDigest, &item.CreatedAt,
+			&item.HumanQuestion, &item.ResultDigest, &item.ResultContentID,
+			&item.ApprovedResultDigest, &item.ProtocolVersion, &item.CreatedAt,
 			&item.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan Current State Meeting: %w", err)
 		}
@@ -583,7 +676,8 @@ func meetingsByProject(ctx context.Context, source queryer, projectID string) ([
 func candidatesByProject(ctx context.Context, source queryer, projectID string) ([]SemanticCandidate, error) {
 	rows, err := source.QueryContext(ctx, `
         SELECT sc.id, sc.meeting_id, sc.kind, sc.statement,
-               sc.source_refs_json, sc.status, sc.rationale,
+			   sc.source_refs_json, sc.status, sc.design_disposition,
+			   sc.context_disposition, sc.rationale,
                sc.created_at, sc.updated_at
         FROM semantic_candidates sc
         JOIN meetings m ON m.id = sc.meeting_id
@@ -597,7 +691,8 @@ func candidatesByProject(ctx context.Context, source queryer, projectID string) 
 		var item SemanticCandidate
 		var refs []byte
 		if err := rows.Scan(&item.ID, &item.MeetingID, &item.Kind,
-			&item.Statement, &refs, &item.Status, &item.Rationale,
+			&item.Statement, &refs, &item.Status, &item.DesignDisposition,
+			&item.ContextDisposition, &item.Rationale,
 			&item.CreatedAt, &item.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan Current State Candidate: %w", err)
 		}
@@ -628,5 +723,6 @@ func (s *Store) CurrentState(ctx context.Context, projectID string) (CurrentStat
 	}
 	return CurrentState{ProjectID: projectID, ProjectedThroughSequence: sequence,
 		Meetings: document.Meetings, Candidates: document.Candidates,
-		ResultDigest: digest, UpdatedAt: updatedAt}, nil
+		ApprovedContext: document.ApprovedContext,
+		ResultDigest:    digest, UpdatedAt: updatedAt}, nil
 }

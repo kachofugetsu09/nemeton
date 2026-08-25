@@ -7,6 +7,8 @@
 > 决策者：Human
 >
 > Amends：Decision 0003、0004、0006 中的 NOW/SSE 示例；落实 0001、0002、0005、0008
+>
+> Current amendment：Decision 0010 新增 protocol v2，并修订当前会议的 Verifier、未收敛和 UI 边界；protocol v1 历史语义保留。
 
 ## 问题
 

@@ -1,0 +1,6 @@
+{
+  "structured_review": "One item persists, one core ownership item is rejected.",
+  "user_feedback": "客户端状态所有权的处理仍然不成立，尤其是断线后的唯一事实来源和失败传播边界。",
+  "expected_action": "reconvene",
+  "invariant": "The same roster, Provider, model, options, workdir and sessions enter cycle 2; persisted context stays locked."
+}

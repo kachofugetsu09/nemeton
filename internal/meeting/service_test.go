@@ -77,8 +77,48 @@ func (b programmaticBackend) Execute(ctx context.Context, request runner.Request
 
 func programmaticOutput(prompt string) string {
 	switch {
-	case strings.Contains(prompt, "MALFORMED_PROVIDER_OUTPUT"):
+	case strings.Contains(prompt, "MALFORMED_PROVIDER_OUTPUT") && strings.Contains(prompt, "in a Nemeton design meeting"):
+		if strings.Contains(prompt, "Protocol correction:") && !strings.Contains(prompt, "PERSISTENT_MALFORMED_PROVIDER_OUTPUT") {
+			return `{"summary":"corrected proposal","claims":["claim"],"evidence":["repository experiment"],"risks":[],"candidate_items":[{"kind":"decision","statement":"adopt corrected design"}]}`
+		}
 		return "not-json"
+	case strings.Contains(prompt, "WRAPPED_PROVIDER_OUTPUT") && strings.Contains(prompt, "in a Nemeton design meeting"):
+		return "I have finished the repository review.```json\n" +
+			`{"summary":"wrapped proposal","claims":["claim"],"evidence":["repository experiment"],"risks":[],"candidate_items":[{"kind":"decision","statement":"adopt wrapped design"}]}` + "\n```"
+	case strings.Contains(prompt, "sole Recorder continuing"):
+		references := regexp.MustCompile(`"id":"([0-9a-f-]+)"`).FindAllStringSubmatch(prompt, -1)
+		id := "missing"
+		if len(references) > 0 {
+			id = references[0][1]
+		}
+		switch {
+		case strings.Contains(prompt, "Protocol correction:"):
+			return `{"action":"reconvene","response":"","opening":"Reconsider the rejected core boundary with the original roster.","synthesis":"","candidates":[]}`
+		case strings.Contains(prompt, "POLICY_CORRECTION"):
+			data, _ := json.Marshal(map[string]any{"action": "patch", "response": "", "opening": "", "synthesis": "Invalid local patch for a rejected boundary.", "candidates": []map[string]any{{"kind": "boundary", "statement": "The daemon owns committed sequence recovery.", "rationale": "This deliberately violates the reconvene policy.", "source_refs": []string{id}}}})
+			return string(data)
+		case strings.Contains(prompt, "CORE_REJECT"):
+			return `{"action":"reconvene","response":"","opening":"Reconsider the rejected state ownership while preserving locked context.","synthesis":"","candidates":[]}`
+		case strings.Contains(prompt, "LOCAL_PATCH"):
+			data, _ := json.Marshal(map[string]any{"action": "patch", "response": "", "opening": "", "synthesis": "Complete patched design with explicit restart and replay acceptance.", "candidates": []map[string]any{{"kind": "invariant", "statement": "Committed replay never creates a new external side effect.", "rationale": "The review requested an explicit acceptance boundary.", "source_refs": []string{id}}, {"kind": "boundary", "statement": "The daemon owns committed sequence recovery.", "rationale": "The local clarification does not change ownership.", "source_refs": []string{id}}}})
+			return string(data)
+		case strings.Contains(prompt, "ANSWER_ONLY"):
+			return `{"action":"answer","response":"The committed sequence is owned by the daemon projection; the browser only supplies its last observed sequence.","opening":"","synthesis":"","candidates":[]}`
+		default:
+			return `{"action":"reconvene","response":"","opening":"Revisit the unresolved core design with the original roster.","synthesis":"","candidates":[]}`
+		}
+	case strings.Contains(prompt, "sole Recorder for a Nemeton protocol v2"):
+		references := regexp.MustCompile(`"id":"([0-9a-f-]+)"`).FindAllStringSubmatch(prompt, -1)
+		id := "missing"
+		if len(references) > 0 {
+			id = references[0][1]
+		}
+		data, _ := json.Marshal(map[string]any{"synthesis": "Complete self-contained design owned by the daemon with deterministic replay and explicit acceptance.",
+			"candidates": []map[string]any{
+				{"kind": "invariant", "statement": "Committed meeting results are immutable.", "rationale": "The event stream owns revisions.", "source_refs": []string{id}},
+				{"kind": "boundary", "statement": "The daemon owns recovery and failure propagation.", "rationale": "Clients consume projections.", "source_refs": []string{id}},
+			}})
+		return string(data)
 	case strings.Contains(prompt, "You are the Recorder"):
 		reference := regexp.MustCompile(`"id":"([0-9a-f-]+)"`).FindStringSubmatch(prompt)
 		id := "missing"
@@ -98,6 +138,237 @@ func programmaticOutput(prompt string) string {
 	default:
 		return `{"summary":"proposal","claims":["claim"],"evidence":["repository experiment"],"risks":[],"candidate_items":[{"kind":"decision","statement":"adopt design"}]}`
 	}
+}
+
+func TestProtocolV2ReviewLoopPersistsContextAndReplaysWithoutProviders(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	repository := createMeetingRepository(t, filepath.Join(root, "repository"))
+	database, _, projectService, service := meetingHarness(t, ctx, root)
+	projectSnapshot, err := projectService.Open(ctx, repository, "main")
+	if err != nil {
+		t.Fatalf("open Project: %v", err)
+	}
+	created, err := service.Create(ctx, CreateInput{ProjectID: projectSnapshot.Project.ID,
+		Title: "Design durable recovery", Brief: "Design restart and replay ownership",
+		Participants: []ParticipantInput{
+			{Seat: "designer-a", Role: "designer", Provider: "codex", Model: "gpt-5.4-mini", ProviderOptions: map[string]string{"reasoning_effort": "medium"}},
+			{Seat: "designer-b", Role: "designer", Provider: "opencode", Model: "opencode-go/deepseek-v4-pro", ProviderOptions: map[string]string{"variant": "high"}},
+			{Seat: "recorder", Role: "recorder", Provider: "opencode", Model: "opencode-go/deepseek-v4-pro", ProviderOptions: map[string]string{"variant": "high"}},
+		}})
+	if err != nil {
+		t.Fatalf("create protocol v2 Meeting: %v", err)
+	}
+	if created.Meeting.ProtocolVersion != 2 || len(created.Participants) != 3 {
+		t.Fatalf("created protocol v2 Meeting = %#v", created)
+	}
+	if _, err := service.Start(ctx, created.Meeting.ID); err != nil {
+		t.Fatalf("start protocol v2 Meeting: %v", err)
+	}
+	if err := service.Run(ctx, created.Meeting.ID); err != nil {
+		t.Fatalf("run protocol v2 Meeting: %v", err)
+	}
+	current := inspectMeetingForTest(t, ctx, service, created.Meeting.ID)
+	if current.Meeting.Status != "awaiting_user_review" || len(current.Candidates) != 2 || current.Meeting.ResultContentID == "" {
+		t.Fatalf("initial protocol v2 Result = %#v", current)
+	}
+	initialSessions := participantSessions(current)
+
+	invalidItems := make([]event.SemanticReviewItem, 0, len(current.Candidates))
+	for index, candidate := range current.Candidates {
+		if !contains(candidate.SourceRefs, current.Meeting.ResultContentID) {
+			continue
+		}
+		designDisposition := "accepted"
+		contextDisposition := "result_only"
+		if index == 0 {
+			designDisposition = "unreviewed"
+			contextDisposition = "none"
+		}
+		invalidItems = append(invalidItems, event.SemanticReviewItem{CandidateID: candidate.ID,
+			DesignDisposition: designDisposition, ContextDisposition: contextDisposition})
+	}
+	if _, err := service.Review(ctx, current.Meeting.ID, ReviewInput{
+		ResultAction: "continue", Items: invalidItems}); err == nil {
+		t.Fatal("review accepted internal unreviewed disposition from the Human boundary")
+	}
+	invalidItems[0] = event.SemanticReviewItem{CandidateID: invalidItems[0].CandidateID,
+		DesignDisposition: "rejected", ContextDisposition: "none"}
+	if _, err := service.Review(ctx, current.Meeting.ID, ReviewInput{
+		ResultAction: "approve", Items: invalidItems}); err == nil {
+		t.Fatal("complete Result approval accepted a rejected design item")
+	}
+
+	// Recorder answers a factual question without changing the Result.
+	resultID := current.Meeting.ResultContentID
+	current = reviewPersistFirstForTest(t, ctx, service, current, "ANSWER_ONLY: who owns the committed sequence?")
+	if err := service.Run(ctx, current.Meeting.ID); err != nil {
+		t.Fatalf("run Recorder answer: %v", err)
+	}
+	current = inspectMeetingForTest(t, ctx, service, current.Meeting.ID)
+	if current.Meeting.Status != "awaiting_user_review" || current.Meeting.ResultContentID != resultID || !hasKind(current, "recorder_answer") {
+		t.Fatalf("Recorder answer changed the Result: %#v", current.Meeting)
+	}
+
+	// Recorder makes a local full revision, then a core rejection forces a same-roster cycle.
+	current = reviewPersistFirstForTest(t, ctx, service, current, "LOCAL_PATCH: make restart acceptance explicit.")
+	if err := service.Run(ctx, current.Meeting.ID); err != nil {
+		t.Fatalf("run Recorder patch: %v", err)
+	}
+	current = inspectMeetingForTest(t, ctx, service, current.Meeting.ID)
+	if current.Meeting.ResultContentID == resultID || current.Meeting.Status != "awaiting_user_review" {
+		t.Fatalf("Recorder patch did not create a Result revision: %#v", current.Meeting)
+	}
+	current = reviewMixedForTest(t, ctx, service, current, "POLICY_CORRECTION: reconsider the core recovery owner.")
+	if !requiresSwarmReview(current) {
+		t.Fatalf("structured core rejection was not recognized: %#v", current.Candidates)
+	}
+	if err := service.Run(ctx, current.Meeting.ID); err != nil {
+		t.Fatalf("run Recorder reconvene decision: %v", err)
+	}
+	current = inspectMeetingForTest(t, ctx, service, current.Meeting.ID)
+	if current.Meeting.Status != "reconvening" || current.Meeting.Cycle != 2 || !hasKind(current, "recorder_opening") {
+		t.Fatalf("Recorder did not reconvene: meeting=%#v runs=%#v candidates=%#v", current.Meeting, current.Runs, current.Candidates)
+	}
+	failedCorrections := 0
+	for _, run := range current.Runs {
+		if run.Phase == "recorder_review" && run.Status == "failed" && strings.Contains(run.Error, "requires reconvene") {
+			failedCorrections++
+		}
+	}
+	if failedCorrections != 1 {
+		t.Fatalf("bounded Recorder correction failures = %d, want 1", failedCorrections)
+	}
+	if err := service.Run(ctx, current.Meeting.ID); err != nil {
+		t.Fatalf("run reconvened cycle: %v", err)
+	}
+	current = inspectMeetingForTest(t, ctx, service, current.Meeting.ID)
+	if current.Meeting.Status != "awaiting_user_review" || current.Meeting.Cycle != 2 {
+		t.Fatalf("reconvened Result = %#v", current.Meeting)
+	}
+	for id, session := range initialSessions {
+		if participantSessions(current)[id] != session {
+			t.Fatalf("participant %s session changed across cycles", id)
+		}
+	}
+
+	// Whole-result approval persists selected context and yields a deterministic Handoff.
+	current = reviewAllForTest(t, ctx, service, current, "approve", "persist", "")
+	if current.Meeting.Status != "concluded" || current.Meeting.ApprovedResultDigest == "" {
+		t.Fatalf("approved Meeting = %#v", current.Meeting)
+	}
+	handoff, err := service.Handoff(ctx, current.Meeting.ID)
+	if err != nil || len(handoff.ApprovedContext) < 3 {
+		t.Fatalf("Handoff approved context = %d, error %v", len(handoff.ApprovedContext), err)
+	}
+	markdown := handoff.Markdown()
+	for _, required := range []string{handoff.Schema, handoff.MeetingID, handoff.ResultDigest,
+		current.Meeting.Brief, handoff.Result, handoff.ApprovedContext[0].Statement} {
+		if !strings.Contains(markdown, required) {
+			t.Fatalf("Markdown Handoff omits %q", required)
+		}
+	}
+	beforeDigest := current.CurrentStateDigest
+	beforeCalls := programmaticCalls.Load()
+	if _, err := database.Replay(ctx, projectSnapshot.Project.ID); err != nil {
+		t.Fatalf("replay protocol v2 Project: %v", err)
+	}
+	replayed := inspectMeetingForTest(t, ctx, service, current.Meeting.ID)
+	if replayed.CurrentStateDigest != beforeDigest || programmaticCalls.Load() != beforeCalls {
+		t.Fatalf("replay digest/calls changed: digest=%s calls=%d", replayed.CurrentStateDigest, programmaticCalls.Load()-beforeCalls)
+	}
+}
+
+func inspectMeetingForTest(t *testing.T, ctx context.Context, service *Service, meetingID string) store.MeetingSnapshot {
+	t.Helper()
+	snapshot, err := service.Inspect(ctx, meetingID)
+	if err != nil {
+		t.Fatalf("inspect Meeting: %v", err)
+	}
+	return snapshot
+}
+
+func reviewAllForTest(t *testing.T, ctx context.Context, service *Service, snapshot store.MeetingSnapshot,
+	action, contextDisposition, comment string) store.MeetingSnapshot {
+	t.Helper()
+	items := make([]event.SemanticReviewItem, 0)
+	for _, candidate := range snapshot.Candidates {
+		if contains(candidate.SourceRefs, snapshot.Meeting.ResultContentID) {
+			items = append(items, event.SemanticReviewItem{CandidateID: candidate.ID,
+				DesignDisposition: "accepted", ContextDisposition: contextDisposition})
+		}
+	}
+	result, err := service.Review(ctx, snapshot.Meeting.ID, ReviewInput{ResultAction: action, Items: items, Comment: comment})
+	if err != nil {
+		t.Fatalf("review all Result items: %v", err)
+	}
+	return result
+}
+
+func reviewMixedForTest(t *testing.T, ctx context.Context, service *Service,
+	snapshot store.MeetingSnapshot, comment string) store.MeetingSnapshot {
+	t.Helper()
+	items := make([]event.SemanticReviewItem, 0)
+	index := 0
+	for _, candidate := range snapshot.Candidates {
+		if !contains(candidate.SourceRefs, snapshot.Meeting.ResultContentID) {
+			continue
+		}
+		item := event.SemanticReviewItem{CandidateID: candidate.ID, DesignDisposition: "rejected", ContextDisposition: "none"}
+		if index == 0 {
+			item.DesignDisposition = "accepted"
+			item.ContextDisposition = "persist"
+		}
+		items = append(items, item)
+		index++
+	}
+	result, err := service.Review(ctx, snapshot.Meeting.ID, ReviewInput{ResultAction: "continue", Items: items, Comment: comment})
+	if err != nil {
+		t.Fatalf("review mixed Result items: %v", err)
+	}
+	return result
+}
+
+func reviewPersistFirstForTest(t *testing.T, ctx context.Context, service *Service,
+	snapshot store.MeetingSnapshot, comment string) store.MeetingSnapshot {
+	t.Helper()
+	items := make([]event.SemanticReviewItem, 0)
+	index := 0
+	for _, candidate := range snapshot.Candidates {
+		if !contains(candidate.SourceRefs, snapshot.Meeting.ResultContentID) {
+			continue
+		}
+		contextDisposition := "result_only"
+		if index == 0 {
+			contextDisposition = "persist"
+		}
+		items = append(items, event.SemanticReviewItem{CandidateID: candidate.ID,
+			DesignDisposition: "accepted", ContextDisposition: contextDisposition})
+		index++
+	}
+	result, err := service.Review(ctx, snapshot.Meeting.ID, ReviewInput{
+		ResultAction: "continue", Items: items, Comment: comment})
+	if err != nil {
+		t.Fatalf("review with locked first item: %v", err)
+	}
+	return result
+}
+
+func participantSessions(snapshot store.MeetingSnapshot) map[string]string {
+	result := make(map[string]string, len(snapshot.Participants))
+	for _, participant := range snapshot.Participants {
+		result[participant.ID] = participant.SessionID
+	}
+	return result
+}
+
+func hasKind(snapshot store.MeetingSnapshot, kind string) bool {
+	for _, content := range snapshot.Contents {
+		if content.Kind == kind {
+			return true
+		}
+	}
+	return false
 }
 
 func TestPersistentMeetingConvergesRatifiesAndReplays(t *testing.T) {
@@ -319,7 +590,7 @@ func TestMalformedProviderOutputFailsRunsWithEvidence(t *testing.T) {
 		t.Fatalf("open Project: %v", err)
 	}
 	snapshot, err := service.Create(ctx, CreateInput{ProjectID: projectSnapshot.Project.ID,
-		Title: "Reject malformed output", Brief: "MALFORMED_PROVIDER_OUTPUT"})
+		Title: "Reject malformed output", Brief: "PERSISTENT_MALFORMED_PROVIDER_OUTPUT"})
 	if err != nil {
 		t.Fatalf("create Meeting: %v", err)
 	}
@@ -345,8 +616,101 @@ func TestMalformedProviderOutputFailsRunsWithEvidence(t *testing.T) {
 			}
 		}
 	}
-	if failed.Meeting.Status != "failed" || failedRuns != 3 {
+	if failed.Meeting.Status != "failed" || failedRuns != 6 {
 		t.Fatalf("malformed Meeting status=%s failed Runs=%d", failed.Meeting.Status, failedRuns)
+	}
+}
+
+func TestStructuredProviderOutputIsCorrectedAndCanonicalized(t *testing.T) {
+	ctx := context.Background()
+	for _, testCase := range []struct {
+		name            string
+		brief           string
+		wantFailedRuns  int
+		forbiddenOutput string
+	}{
+		{name: "bounded correction", brief: "MALFORMED_PROVIDER_OUTPUT", wantFailedRuns: 1},
+		{name: "wrapped JSON", brief: "WRAPPED_PROVIDER_OUTPUT", forbiddenOutput: "I have finished"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			root := t.TempDir()
+			repository := createMeetingRepository(t, filepath.Join(root, "repository"))
+			_, artifacts, projectService, service := meetingHarness(t, ctx, root)
+			projectSnapshot, err := projectService.Open(ctx, repository, "main")
+			if err != nil {
+				t.Fatalf("open Project: %v", err)
+			}
+			snapshot, err := service.Create(ctx, CreateInput{ProjectID: projectSnapshot.Project.ID,
+				Title: testCase.name, Brief: testCase.brief, Participants: []ParticipantInput{
+					{Seat: "designer-1", Role: "designer", Provider: "opencode", Model: "test-model"},
+					{Seat: "recorder", Role: "recorder", Provider: "codex", Model: "test-model"},
+				}})
+			if err != nil {
+				t.Fatalf("create Meeting: %v", err)
+			}
+			if _, err := service.Start(ctx, snapshot.Meeting.ID); err != nil {
+				t.Fatalf("start Meeting: %v", err)
+			}
+			if err := service.Run(ctx, snapshot.Meeting.ID); err != nil {
+				t.Fatalf("run Meeting: %v", err)
+			}
+
+			completed := inspectMeetingForTest(t, ctx, service, snapshot.Meeting.ID)
+			failedRuns := 0
+			proposalRuns := make([]store.AgentRun, 0, 2)
+			for _, run := range completed.Runs {
+				if run.Phase != "proposal" {
+					continue
+				}
+				proposalRuns = append(proposalRuns, run)
+				if run.Status == "failed" {
+					failedRuns++
+				}
+				if run.SessionID == "" || run.RawStreamDigest == "" || run.OutputDigest == "" {
+					t.Fatalf("proposal Run lacks Session or evidence: %#v", run)
+				}
+			}
+			if failedRuns != testCase.wantFailedRuns {
+				t.Fatalf("failed proposal Runs = %d, want %d", failedRuns, testCase.wantFailedRuns)
+			}
+			if len(proposalRuns) != testCase.wantFailedRuns+1 {
+				t.Fatalf("proposal Runs = %d, want %d", len(proposalRuns), testCase.wantFailedRuns+1)
+			}
+			for _, run := range proposalRuns[1:] {
+				if run.SessionID != proposalRuns[0].SessionID {
+					t.Fatalf("correction changed Session from %s to %s", proposalRuns[0].SessionID, run.SessionID)
+				}
+			}
+			for _, content := range completed.Contents {
+				if content.Kind != "proposal" {
+					continue
+				}
+				body, err := artifacts.Read(content.ContentDigest)
+				if err != nil {
+					t.Fatalf("read canonical Proposal: %v", err)
+				}
+				var output proposalOutput
+				if err := json.Unmarshal(body, &output); err != nil {
+					t.Fatalf("canonical Proposal is not JSON: %v: %s", err, body)
+				}
+				if output.Summary == "" || (testCase.forbiddenOutput != "" && strings.Contains(string(body), testCase.forbiddenOutput)) {
+					t.Fatalf("canonical Proposal = %s", body)
+				}
+				finalRun := proposalRuns[len(proposalRuns)-1]
+				if finalRun.OutputDigest != content.ContentDigest {
+					t.Fatalf("Proposal digest = %s, completed Run output = %s", content.ContentDigest, finalRun.OutputDigest)
+				}
+				raw, err := artifacts.Read(finalRun.RawStreamDigest)
+				if err != nil {
+					t.Fatalf("read raw Provider stream: %v", err)
+				}
+				if testCase.forbiddenOutput != "" && !strings.Contains(string(raw), testCase.forbiddenOutput) {
+					t.Fatalf("raw stream lost Provider preamble: %s", raw)
+				}
+				return
+			}
+			t.Fatal("canonical Proposal content not found")
+		})
 	}
 }
 

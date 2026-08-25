@@ -1,0 +1,5 @@
+{
+  "user_feedback": "方案方向不变，但验收标准缺少 daemon restart 后不重复 committed event，以及客户端从最后 committed sequence 恢复这两条。",
+  "expected_action": "patch",
+  "invariant": "A full self-contained replacement Result is appended; the previous Result remains immutable."
+}

@@ -116,7 +116,7 @@ func TestProjectRealityLifecycle(t *testing.T) {
 	stableDigest := relinked.Project.ResultDigest
 
 	// 5. Reject a second daemon and preserve state across a real restart.
-	second := exec.Command(filepath.Join(testBinaries, "nemetond"), "--data-dir", harness.dataDir)
+	second := exec.Command(filepath.Join(testBinaries, "nemetond"), daemonArguments(harness.dataDir)...)
 	secondOutput, secondErr := second.CombinedOutput()
 	if secondErr == nil || !strings.Contains(string(secondOutput), "owns data directory lock") {
 		t.Fatalf("second daemon result = %v, output = %s", secondErr, secondOutput)
@@ -316,10 +316,14 @@ func shortDataDir(t *testing.T) string {
 	return filepath.Join(root, "data")
 }
 
+func daemonArguments(dataDir string) []string {
+	return []string{"--data-dir", dataDir, "--web-address", "127.0.0.1:0"}
+}
+
 func (h *harness) start(t *testing.T) *daemonProcess {
 	t.Helper()
 	var stderr bytes.Buffer
-	command := exec.Command(filepath.Join(testBinaries, "nemetond"), "--data-dir", h.dataDir)
+	command := exec.Command(filepath.Join(testBinaries, "nemetond"), daemonArguments(h.dataDir)...)
 	command.Stderr = &stderr
 	if err := command.Start(); err != nil {
 		t.Fatalf("start nemetond: %v", err)
@@ -347,7 +351,7 @@ func (h *harness) startExpectFailure(t *testing.T, detail string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, filepath.Join(testBinaries, "nemetond"), "--data-dir", h.dataDir)
+	command := exec.CommandContext(ctx, filepath.Join(testBinaries, "nemetond"), daemonArguments(h.dataDir)...)
 	output, err := command.CombinedOutput()
 	if err == nil {
 		t.Fatalf("nemetond unexpectedly started; wanted failure containing %q", detail)

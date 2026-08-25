@@ -47,6 +47,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return meetingCreate(ctx, args[2:], stdout, stderr)
 	case "meeting show":
 		return meetingShow(ctx, args[2:], stdout, stderr)
+	case "meeting handoff":
+		return meetingHandoff(ctx, args[2:], stdout, stderr)
 	case "meeting start":
 		return meetingStart(ctx, args[2:], stdout, stderr)
 	case "meeting run":
@@ -123,6 +125,39 @@ func meetingShow(ctx context.Context, args []string, stdout, stderr io.Writer) i
 		return printFailure(stderr, *jsonOutput, err)
 	}
 	return printMeeting(stdout, stderr, *jsonOutput, response)
+}
+
+func meetingHandoff(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+	flags := flag.NewFlagSet("meeting handoff", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	dataDir := flags.String("data-dir", "", "absolute Nemeton data directory")
+	format := flags.String("format", "markdown", "output format: markdown or json")
+	if err := flags.Parse(interspersedArgs(args, "data-dir", "format")); err != nil || flags.NArg() != 1 {
+		return 2
+	}
+	configuration, err := config.Resolve(*dataDir)
+	if err != nil {
+		return printFailure(stderr, *format == "json", err)
+	}
+	response, err := api.NewClient(configuration.SocketPath).MeetingHandoff(ctx, flags.Arg(0))
+	if err != nil {
+		return printFailure(stderr, *format == "json", err)
+	}
+	switch *format {
+	case "markdown":
+		if response.Markdown == "" {
+			return printFailure(stderr, false, fmt.Errorf("daemon returned an empty Markdown Handoff"))
+		}
+		if _, err := io.WriteString(stdout, response.Markdown); err != nil {
+			return printFailure(stderr, false, err)
+		}
+		return 0
+	case "json":
+		return printJSON(stdout, stderr, response)
+	default:
+		fmt.Fprintln(stderr, "format must be markdown or json")
+		return 2
+	}
 }
 
 func meetingStart(ctx context.Context, args []string, stdout, stderr io.Writer) int {
@@ -437,7 +472,7 @@ func printJSON(output, stderr io.Writer, value any) int {
 }
 
 func printUsage(output io.Writer) {
-	fmt.Fprintln(output, "usage: nemeton <daemon start|daemon status|project open|project inspect|project relink|project replay|project state|meeting create|meeting show|meeting start|meeting run|meeting watch|meeting answer|meeting ratify> [options]")
+	fmt.Fprintln(output, "usage: nemeton <daemon start|daemon status|project open|project inspect|project relink|project replay|project state|meeting create|meeting show|meeting handoff|meeting start|meeting run|meeting watch|meeting answer|meeting ratify> [options]")
 }
 
 func interspersedArgs(args []string, valueFlags ...string) []string {

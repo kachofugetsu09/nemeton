@@ -37,11 +37,20 @@ type Scheduler interface {
 }
 
 type CreateInput struct {
-	ProjectID string
-	Kind      string
-	Title     string
-	Brief     string
-	Providers map[string]string
+	ProjectID    string
+	Kind         string
+	Title        string
+	Brief        string
+	Providers    map[string]string
+	Participants []ParticipantInput
+}
+
+type ParticipantInput struct {
+	Seat            string
+	Role            string
+	Provider        string
+	Model           string
+	ProviderOptions map[string]string
 }
 
 type HumanInput struct {
@@ -52,6 +61,55 @@ type DispositionInput struct {
 	CandidateID string
 	Disposition string
 	Reason      string
+}
+
+type ReviewInput struct {
+	ResultAction string
+	Items        []event.SemanticReviewItem
+	Comment      string
+}
+
+type Content struct {
+	ID        string `json:"id"`
+	Kind      string `json:"kind"`
+	MediaType string `json:"media_type"`
+	Body      string `json:"body"`
+}
+
+type Handoff struct {
+	Schema          string                    `json:"schema"`
+	MeetingID       string                    `json:"meeting_id"`
+	Title           string                    `json:"title"`
+	OriginalBrief   string                    `json:"original_brief"`
+	ResultContentID string                    `json:"result_content_id"`
+	ResultDigest    string                    `json:"result_digest"`
+	Result          string                    `json:"result"`
+	ApprovedContext []store.SemanticCandidate `json:"approved_context"`
+}
+
+// Markdown renders a self-contained handoff without writing the target repository.
+func (h Handoff) Markdown() string {
+	// 1. Preserve the approved Result exactly as recorded.
+	var document strings.Builder
+	fmt.Fprintf(&document, "---\nschema: %s\nmeeting_id: %s\nresult_content_id: %s\nresult_digest: %s\n---\n\n", h.Schema, h.MeetingID, h.ResultContentID, h.ResultDigest)
+	fmt.Fprintf(&document, "# %s\n\n## Original request\n\n%s\n\n## Approved design Result\n\n%s\n", h.Title, h.OriginalBrief, strings.TrimSpace(h.Result))
+
+	// 2. Append the Human-selected context that future work must preserve.
+	document.WriteString("\n\n## Approved project context\n")
+	if len(h.ApprovedContext) == 0 {
+		document.WriteString("\nNo additional project context was approved.\n")
+		return document.String()
+	}
+	for _, item := range h.ApprovedContext {
+		fmt.Fprintf(&document, "\n- **%s:** %s\n", item.Kind, item.Statement)
+		if item.Rationale != "" {
+			fmt.Fprintf(&document, "  - Rationale: %s\n", item.Rationale)
+		}
+		if len(item.SourceRefs) > 0 {
+			fmt.Fprintf(&document, "  - Sources: `%s`\n", strings.Join(item.SourceRefs, "`, `"))
+		}
+	}
+	return document.String()
 }
 
 type Service struct {
@@ -92,7 +150,13 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (store.MeetingS
 	if input.Kind != "change" && input.Kind != "project" {
 		return store.MeetingSnapshot{}, newError("invalid_argument", "Meeting kind must be change or project")
 	}
-	if err := validateProviderOverrides(input.Providers); err != nil {
+	protocolVersion := 1
+	if len(input.Participants) > 0 {
+		protocolVersion = 2
+		if err := validateParticipants(input.Participants); err != nil {
+			return store.MeetingSnapshot{}, err
+		}
+	} else if err := validateProviderOverrides(input.Providers); err != nil {
 		return store.MeetingSnapshot{}, err
 	}
 	project, err := s.store.Inspect(ctx, input.ProjectID)
@@ -118,32 +182,74 @@ func (s *Service) Create(ctx context.Context, input CreateInput) (store.MeetingS
 		return store.MeetingSnapshot{}, err
 	}
 	now := time.Now().UTC()
+	createdPayload := event.MeetingCreatedPayload{
+		MeetingID: meetingID, ProjectID: input.ProjectID,
+		RealityID: project.CurrentReality.ID, Kind: input.Kind, Title: input.Title,
+		Brief: input.Brief, Status: "draft", MaxRounds: defaultMaxRounds,
+		Cycle: 1, CurrentRound: 0, RealityBundleDigest: bundleRecord.Digest,
+		CreatedAt: now.Format(time.RFC3339Nano),
+	}
+	createdType := event.MeetingCreated
+	var createdBody any = createdPayload
+	if protocolVersion == 2 {
+		createdType = event.MeetingCreatedV2
+		createdBody = event.MeetingCreatedV2Payload{MeetingCreatedPayload: createdPayload, ProtocolVersion: 2}
+	}
 	created, err := event.NewEnvelope(input.ProjectID, "meeting", meetingID,
-		event.MeetingCreated, "human", correlationID, event.MeetingCreatedPayload{
-			MeetingID: meetingID, ProjectID: input.ProjectID,
-			RealityID: project.CurrentReality.ID, Kind: input.Kind, Title: input.Title,
-			Brief: input.Brief, Status: "draft", MaxRounds: defaultMaxRounds,
-			Cycle: 1, CurrentRound: 0, RealityBundleDigest: bundleRecord.Digest,
-			CreatedAt: now.Format(time.RFC3339Nano),
-		}, now)
+		createdType, "human", correlationID, createdBody, now)
 	if err != nil {
 		return store.MeetingSnapshot{}, err
 	}
 	created.Artifacts = []event.ArtifactRef{artifactRef(bundleRecord, "reality_bundle")}
 	events := []event.Envelope{created}
-	for _, definition := range participantDefinitions(input.Providers) {
+	definitions := participantDefinitions(input.Providers)
+	if protocolVersion == 2 {
+		definitions = make([]participantDefinition, 0, len(input.Participants))
+		briefRecord, err := s.artifacts.Put([]byte(input.Brief), "text/plain;charset=utf-8")
+		if err != nil {
+			return store.MeetingSnapshot{}, err
+		}
+		contentID, err := event.NewID()
+		if err != nil {
+			return store.MeetingSnapshot{}, err
+		}
+		briefContent, err := event.NewEnvelope(input.ProjectID, "meeting_content", contentID,
+			event.MeetingContentAdded, "human", correlationID, event.MeetingContentAddedPayload{
+				MeetingID: meetingID, ContentID: contentID, Kind: "human_input", Cycle: 1,
+				Round: 0, ContentDigest: briefRecord.Digest, CreatedAt: now.Format(time.RFC3339Nano)}, now)
+		if err != nil {
+			return store.MeetingSnapshot{}, err
+		}
+		briefContent.Artifacts = []event.ArtifactRef{artifactRef(briefRecord, "meeting_content")}
+		events = append(events, briefContent)
+		for _, participant := range input.Participants {
+			definitions = append(definitions, participantDefinition{Seat: participant.Seat,
+				Role: participant.Role, Provider: participant.Provider, Model: participant.Model,
+				ProviderOptions: participant.ProviderOptions})
+		}
+	}
+	for _, definition := range definitions {
 		participantID, err := event.NewID()
 		if err != nil {
 			return store.MeetingSnapshot{}, err
 		}
 		root := filepath.Join(s.worktreesRoot, "meetings", meetingID, participantID)
 		workdir := filepath.Join(root, "workdir", filepath.Base(bundle.SourceRoot))
+		participantPayload := event.MeetingParticipantAddedPayload{MeetingID: meetingID,
+			ParticipantID: participantID, Seat: definition.Seat, Role: definition.Role,
+			Provider: definition.Provider, Model: definition.Model, Status: "pending",
+			Workdir: workdir, AddedAt: now.Format(time.RFC3339Nano)}
+		participantType := event.ParticipantAdded
+		var participantBody any = participantPayload
+		if protocolVersion == 2 {
+			participantType = event.ParticipantAddedV2
+			participantBody = event.MeetingParticipantAddedV2Payload{
+				MeetingParticipantAddedPayload: participantPayload,
+				ProviderOptions:                definition.ProviderOptions,
+			}
+		}
 		item, err := event.NewEnvelope(input.ProjectID, "meeting_participant", participantID,
-			event.ParticipantAdded, "facilitator", correlationID,
-			event.MeetingParticipantAddedPayload{MeetingID: meetingID,
-				ParticipantID: participantID, Seat: definition.Seat, Role: definition.Role,
-				Provider: definition.Provider, Model: definition.Model, Status: "pending",
-				Workdir: workdir, AddedAt: now.Format(time.RFC3339Nano)}, now)
+			participantType, "facilitator", correlationID, participantBody, now)
 		if err != nil {
 			return store.MeetingSnapshot{}, err
 		}
@@ -276,6 +382,184 @@ func (s *Service) Disposition(ctx context.Context, meetingID string, input Dispo
 	return s.store.InspectMeeting(ctx, meetingID)
 }
 
+func (s *Service) Review(ctx context.Context, meetingID string, input ReviewInput) (store.MeetingSnapshot, error) {
+	// Persist one complete option-first review and deterministically advance its owner.
+
+	// 1. Validate the command against the exact current Result revision.
+	snapshot, err := s.Inspect(ctx, meetingID)
+	if err != nil {
+		return store.MeetingSnapshot{}, err
+	}
+	if snapshot.Meeting.ProtocolVersion != 2 || snapshot.Meeting.Status != "awaiting_user_review" {
+		return store.MeetingSnapshot{}, newError("invalid_meeting_state", "Meeting is not awaiting a protocol v2 review")
+	}
+	if input.ResultAction != "approve" && input.ResultAction != "continue" {
+		return store.MeetingSnapshot{}, newError("invalid_argument", "result_action must be approve or continue")
+	}
+	pending := make(map[string]bool)
+	for _, candidate := range snapshot.Candidates {
+		if contains(candidate.SourceRefs, snapshot.Meeting.ResultContentID) {
+			pending[candidate.ID] = true
+		}
+	}
+	if len(input.Items) != len(pending) {
+		return store.MeetingSnapshot{}, newError("invalid_argument", "review must disposition every item in the current Result")
+	}
+	seen := make(map[string]bool, len(input.Items))
+	for _, item := range input.Items {
+		if !pending[item.CandidateID] || seen[item.CandidateID] || !validReviewItem(item) {
+			return store.MeetingSnapshot{}, newError("invalid_argument", "review contains an invalid or duplicate item")
+		}
+		if input.ResultAction == "approve" && item.DesignDisposition != "accepted" {
+			return store.MeetingSnapshot{}, newError("invalid_argument", "approving the complete Result requires every design item to be accepted")
+		}
+		for _, candidate := range snapshot.Candidates {
+			if candidate.ID != item.CandidateID {
+				continue
+			}
+			if candidate.ContextDisposition == "persist" &&
+				(item.DesignDisposition != "accepted" || item.ContextDisposition != "persist") {
+				return store.MeetingSnapshot{}, newError("invalid_argument", "persisted project context is locked")
+			}
+			if candidate.DesignDisposition == "rejected" && item.DesignDisposition != "rejected" {
+				return store.MeetingSnapshot{}, newError("invalid_argument", "rejected semantic items cannot be silently reintroduced")
+			}
+		}
+		seen[item.CandidateID] = true
+	}
+
+	// 2. Store optional prose and the structured choices in one stream transaction.
+	now := time.Now().UTC()
+	correlationID, err := event.NewID()
+	if err != nil {
+		return store.MeetingSnapshot{}, err
+	}
+	events := make([]event.Envelope, 0, 4)
+	commentDigest := ""
+	comment := strings.TrimSpace(input.Comment)
+	if comment != "" {
+		record, err := s.artifacts.Put([]byte(comment), "text/plain;charset=utf-8")
+		if err != nil {
+			return store.MeetingSnapshot{}, err
+		}
+		commentDigest = record.Digest
+		contentID, err := event.NewID()
+		if err != nil {
+			return store.MeetingSnapshot{}, err
+		}
+		content, err := event.NewEnvelope(snapshot.Meeting.ProjectID, "meeting_content", contentID,
+			event.MeetingContentAdded, "human", correlationID, event.MeetingContentAddedPayload{
+				MeetingID: meetingID, ContentID: contentID, Kind: "review_comment",
+				Cycle: snapshot.Meeting.Cycle, Round: snapshot.Meeting.CurrentRound,
+				ContentDigest: record.Digest, Refs: []string{snapshot.Meeting.ResultContentID},
+				CreatedAt: now.Format(time.RFC3339Nano)}, now)
+		if err != nil {
+			return store.MeetingSnapshot{}, err
+		}
+		content.Artifacts = []event.ArtifactRef{artifactRef(record, "meeting_content")}
+		events = append(events, content)
+	}
+	review, err := event.NewEnvelope(snapshot.Meeting.ProjectID, "meeting", meetingID,
+		event.MeetingReviewed, "human", correlationID, event.MeetingReviewedPayload{
+			MeetingID: meetingID, ResultContentID: snapshot.Meeting.ResultContentID,
+			ResultAction: input.ResultAction, Items: input.Items, CommentDigest: commentDigest,
+			ReviewedAt: now.Format(time.RFC3339Nano)}, now)
+	if err != nil {
+		return store.MeetingSnapshot{}, err
+	}
+	events = append(events, review)
+
+	// 3. Approval concludes without another model call; continuation belongs to Recorder.
+	status := "recorder_reviewing"
+	if input.ResultAction == "approve" {
+		approved, err := event.NewEnvelope(snapshot.Meeting.ProjectID, "meeting", meetingID,
+			event.MeetingResultApproved, "human", correlationID, event.MeetingResultApprovedPayload{
+				MeetingID: meetingID, ResultContentID: snapshot.Meeting.ResultContentID,
+				ResultDigest: snapshot.Meeting.ResultDigest, ApprovedAt: now.Format(time.RFC3339Nano)}, now)
+		if err != nil {
+			return store.MeetingSnapshot{}, err
+		}
+		events = append(events, approved)
+		status = "concluded"
+	}
+	statusItem, err := statusEventWithContent(snapshot.Meeting.ProjectID, meetingID, status,
+		snapshot.Meeting.Cycle, snapshot.Meeting.CurrentRound, "", snapshot.Meeting.ResultDigest,
+		snapshot.Meeting.ResultContentID, "human", correlationID, now)
+	if err != nil {
+		return store.MeetingSnapshot{}, err
+	}
+	events = append(events, statusItem)
+	if err := s.append(ctx, snapshot.Meeting.ProjectID, snapshot.StreamVersion, meetingID, events); err != nil {
+		return store.MeetingSnapshot{}, err
+	}
+	if status == "recorder_reviewing" {
+		s.enqueue(meetingID)
+	}
+	return s.store.InspectMeeting(ctx, meetingID)
+}
+
+func (s *Service) ReadContent(ctx context.Context, meetingID, contentID string) (Content, error) {
+	snapshot, err := s.Inspect(ctx, meetingID)
+	if err != nil {
+		return Content{}, err
+	}
+	for _, item := range snapshot.Contents {
+		if item.ID == contentID {
+			data, err := s.artifacts.Read(item.ContentDigest)
+			if err != nil {
+				return Content{}, err
+			}
+			return Content{ID: item.ID, Kind: item.Kind, MediaType: "application/json", Body: string(data)}, nil
+		}
+	}
+	return Content{}, newError("content_not_found", "Meeting content is not referenced by this Meeting")
+}
+
+func (s *Service) Handoff(ctx context.Context, meetingID string) (Handoff, error) {
+	snapshot, err := s.Inspect(ctx, meetingID)
+	if err != nil {
+		return Handoff{}, err
+	}
+	if snapshot.Meeting.Status != "concluded" || snapshot.Meeting.ApprovedResultDigest == "" {
+		return Handoff{}, newError("invalid_meeting_state", "Meeting has no approved Result")
+	}
+	data, err := s.artifacts.Read(snapshot.Meeting.ApprovedResultDigest)
+	if err != nil {
+		return Handoff{}, err
+	}
+	approved := make([]store.SemanticCandidate, 0)
+	for _, candidate := range snapshot.Candidates {
+		if candidate.ContextDisposition == "persist" {
+			approved = append(approved, candidate)
+		}
+	}
+	return Handoff{Schema: "nemeton.coding-design-handoff.v1", MeetingID: meetingID,
+		Title: snapshot.Meeting.Title, OriginalBrief: snapshot.Meeting.Brief,
+		ResultContentID: snapshot.Meeting.ResultContentID,
+		ResultDigest:    snapshot.Meeting.ApprovedResultDigest, Result: string(data),
+		ApprovedContext: approved}, nil
+}
+
+func validReviewItem(item event.SemanticReviewItem) bool {
+	switch item.DesignDisposition {
+	case "accepted":
+		return item.ContextDisposition == "persist" || item.ContextDisposition == "result_only"
+	case "rejected", "deferred":
+		return item.ContextDisposition == "none"
+	default:
+		return false
+	}
+}
+
+func contains(values []string, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Service) EventsAfter(ctx context.Context, meetingID string, after int64) ([]store.StreamEvent, error) {
 	if after < 0 {
 		return nil, newError("invalid_argument", "after_sequence must be non-negative")
@@ -296,6 +580,21 @@ func (s *Service) Run(ctx context.Context, meetingID string) error {
 	if err != nil {
 		return err
 	}
+	if snapshot.Meeting.Status == "recorder_reviewing" {
+		if err := s.recorderReview(ctx, snapshot); err != nil {
+			return s.failMeeting(ctx, meetingID, err)
+		}
+		return nil
+	}
+	if snapshot.Meeting.Status == "reconvening" {
+		if err := s.setStatus(ctx, snapshot, "sealed_proposals", 0, "", snapshot.Meeting.ResultDigest); err != nil {
+			return err
+		}
+		snapshot, err = s.store.InspectMeeting(ctx, meetingID)
+		if err != nil {
+			return err
+		}
+	}
 	if snapshot.Meeting.Status == "preparing" || snapshot.Meeting.Status == "sealed_proposals" {
 		if err := s.prepareWorkspaces(ctx, snapshot); err != nil {
 			return s.failMeeting(ctx, meetingID, err)
@@ -310,7 +609,11 @@ func (s *Service) Run(ctx context.Context, meetingID string) error {
 		if err != nil {
 			return err
 		}
-		if snapshot.Meeting.Status != "revealed" {
+		if snapshot.Meeting.ProtocolVersion == 2 && designParticipantCount(snapshot) == 0 {
+			if err := s.setStatus(ctx, snapshot, "recording", 0, "", ""); err != nil {
+				return err
+			}
+		} else if snapshot.Meeting.Status != "revealed" {
 			if err := s.setStatus(ctx, snapshot, "revealed", 0, "", ""); err != nil {
 				return err
 			}
@@ -341,7 +644,11 @@ func (s *Service) Run(ctx context.Context, meetingID string) error {
 		return err
 	}
 	if snapshot.Meeting.Status == "recording" {
-		if err := s.record(ctx, snapshot); err != nil {
+		record := s.record
+		if snapshot.Meeting.ProtocolVersion == 2 {
+			record = s.recordV2
+		}
+		if err := record(ctx, snapshot); err != nil {
 			return s.failMeeting(ctx, meetingID, err)
 		}
 	}
@@ -349,7 +656,7 @@ func (s *Service) Run(ctx context.Context, meetingID string) error {
 	if err != nil {
 		return err
 	}
-	if snapshot.Meeting.Status == "verifying" {
+	if snapshot.Meeting.ProtocolVersion == 1 && snapshot.Meeting.Status == "verifying" {
 		if err := s.verify(ctx, snapshot); err != nil {
 			return s.failMeeting(ctx, meetingID, err)
 		}
@@ -394,7 +701,7 @@ func (s *Service) ensureProposals(ctx context.Context, meetingID string) error {
 	}
 	var designers []store.MeetingParticipant
 	for _, participant := range snapshot.Participants {
-		if isDesignRole(participant.Role) && participant.ProposalDigest == "" {
+		if isDesignRole(participant.Role) && !hasCycleContent(snapshot, participant.ID, "proposal") {
 			designers = append(designers, participant)
 		}
 	}
@@ -411,7 +718,13 @@ func (s *Service) ensureProposals(ctx context.Context, meetingID string) error {
 		participant := participant
 		go func() {
 			prompt := proposalPrompt(snapshot.Meeting, participant)
-			result, err := s.execute(ctx, snapshot, participant, "proposal", prompt)
+			result, _, err := executeStructured(ctx, s, snapshot, participant, "proposal", prompt,
+				fmt.Sprintf("decode %s proposal", participant.Seat), func(output proposalOutput) error {
+					if strings.TrimSpace(output.Summary) == "" {
+						return fmt.Errorf("proposal must contain a summary")
+					}
+					return nil
+				})
 			results <- completed{participant: participant, result: result, err: err}
 		}()
 	}
@@ -420,23 +733,6 @@ func (s *Service) ensureProposals(ctx context.Context, meetingID string) error {
 		item := <-results
 		if item.err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", item.participant.Seat, item.err))
-			continue
-		}
-		var output proposalOutput
-		if err := decodeStructured(item.result.RunnerResult.Output, &output); err != nil {
-			protocolErr := fmt.Errorf("decode %s proposal: %w", item.participant.Seat, err)
-			if persistErr := s.persistRunFailure(ctx, meetingID, item.participant, "proposal", item.result, protocolErr); persistErr != nil {
-				return persistErr
-			}
-			failures = append(failures, protocolErr.Error())
-			continue
-		}
-		if strings.TrimSpace(output.Summary) == "" {
-			protocolErr := fmt.Errorf("%s proposal must contain a summary", item.participant.Seat)
-			if persistErr := s.persistRunFailure(ctx, meetingID, item.participant, "proposal", item.result, protocolErr); persistErr != nil {
-				return persistErr
-			}
-			failures = append(failures, protocolErr.Error())
 			continue
 		}
 		if err := s.persistRunResult(ctx, meetingID, item.participant, "proposal", item.result, "proposal", nil); err != nil {
@@ -496,25 +792,16 @@ func (s *Service) deliberate(ctx context.Context, snapshot store.MeetingSnapshot
 			if !isDesignRole(participant.Role) {
 				continue
 			}
-			result, err := s.execute(ctx, current, participant, "deliberation",
-				deliberationPrompt(current.Meeting, participant, conflict.Question, round, materials))
+			prompt := deliberationPrompt(current.Meeting, participant, conflict.Question, round, materials)
+			result, output, err := executeStructured(ctx, s, current, participant, "deliberation", prompt,
+				fmt.Sprintf("decode %s deliberation", participant.Seat), func(output deliberationOutput) error {
+					if output.Verdict != "accept" && output.Verdict != "reject" && output.Verdict != "conditional" {
+						return fmt.Errorf("invalid verdict %q", output.Verdict)
+					}
+					return nil
+				})
 			if err != nil {
 				return false, err
-			}
-			var output deliberationOutput
-			if err := decodeStructured(result.RunnerResult.Output, &output); err != nil {
-				protocolErr := fmt.Errorf("decode %s deliberation: %w", participant.Seat, err)
-				if err := s.persistRunFailure(ctx, current.Meeting.ID, participant, "deliberation", result, protocolErr); err != nil {
-					return false, err
-				}
-				return false, protocolErr
-			}
-			if output.Verdict != "accept" && output.Verdict != "reject" && output.Verdict != "conditional" {
-				protocolErr := fmt.Errorf("%s deliberation returned invalid verdict %q", participant.Seat, output.Verdict)
-				if err := s.persistRunFailure(ctx, current.Meeting.ID, participant, "deliberation", result, protocolErr); err != nil {
-					return false, err
-				}
-				return false, protocolErr
 			}
 			if output.Verdict != "accept" || strings.TrimSpace(output.CanonicalStatement) == "" {
 				allAccept = false
@@ -558,6 +845,12 @@ func (s *Service) deliberate(ctx context.Context, snapshot store.MeetingSnapshot
 	if err != nil {
 		return false, err
 	}
+	if current.Meeting.ProtocolVersion == 2 {
+		if err := s.setStatus(ctx, current, "recording", current.Meeting.MaxRounds, "", ""); err != nil {
+			return false, err
+		}
+		return true, nil
+	}
 	question := fmt.Sprintf("Conflict %s did not reach unanimous acceptance after %d rounds: %s",
 		conflict.ID, current.Meeting.MaxRounds, conflict.Question)
 	if err := s.setStatus(ctx, current, "needs_user_input",
@@ -595,6 +888,256 @@ type recorderOutput struct {
 	} `json:"candidates"`
 }
 
+type recorderReviewOutput struct {
+	Action     string `json:"action"`
+	Response   string `json:"response"`
+	Opening    string `json:"opening"`
+	Synthesis  string `json:"synthesis"`
+	Candidates []struct {
+		Kind       string   `json:"kind"`
+		Statement  string   `json:"statement"`
+		Rationale  string   `json:"rationale"`
+		SourceRefs []string `json:"source_refs"`
+	} `json:"candidates"`
+}
+
+func (s *Service) recordV2(ctx context.Context, snapshot store.MeetingSnapshot) error {
+	// Ask the sole Recorder for a complete, source-grounded Result revision.
+	recorder, err := participantByRole(snapshot, "recorder")
+	if err != nil {
+		return err
+	}
+	materials, err := s.meetingMaterials(snapshot)
+	if err != nil {
+		return err
+	}
+	result, output, err := executeStructured(ctx, s, snapshot, recorder, "recording",
+		recorderV2Prompt(snapshot.Meeting, materials), "decode Recorder Result", func(output recorderOutput) error {
+			return validateRecorderResult(output, snapshot.Contents)
+		})
+	if err != nil {
+		return err
+	}
+	if err := s.persistRunResult(ctx, snapshot.Meeting.ID, recorder, "recording", result, "meeting_result", nil); err != nil {
+		return err
+	}
+	current, err := s.store.InspectMeeting(ctx, snapshot.Meeting.ID)
+	if err != nil {
+		return err
+	}
+	resultContent, err := contentByDigest(current, result.OutputRecord.Digest, "meeting_result")
+	if err != nil {
+		return err
+	}
+	return s.persistResultCandidates(ctx, current, resultContent, result.OutputRecord.Digest, output.Candidates)
+}
+
+func (s *Service) recorderReview(ctx context.Context, snapshot store.MeetingSnapshot) error {
+	// Let Recorder choose the smallest valid next action from review state.
+	recorder, err := participantByRole(snapshot, "recorder")
+	if err != nil {
+		return err
+	}
+	materials, err := s.meetingMaterials(snapshot)
+	if err != nil {
+		return err
+	}
+	prompt := recorderReviewPrompt(snapshot.Meeting, materials)
+	for attempt := 1; attempt <= 2; attempt++ {
+		result, err := s.execute(ctx, snapshot, recorder, "recorder_review", prompt)
+		if err != nil {
+			return err
+		}
+		var output recorderReviewOutput
+		decodeErr := decodeStructured(result.RunnerResult.Output, &output)
+		if decodeErr != nil {
+			err = fmt.Errorf("decode Recorder review: %w", decodeErr)
+		} else {
+			err = validateRecorderReview(snapshot, output)
+		}
+		if err == nil {
+			result, err = s.normalizeStructuredResult(result, output)
+			if err != nil {
+				return err
+			}
+			return s.applyRecorderReview(ctx, snapshot, recorder, result, output)
+		}
+		if persistErr := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recorder_review", result, err); persistErr != nil {
+			return persistErr
+		}
+		if attempt == 2 {
+			current, inspectErr := s.store.InspectMeeting(ctx, snapshot.Meeting.ID)
+			if inspectErr != nil {
+				return inspectErr
+			}
+			question := "Recorder could not produce a protocol-compliant decision after 2 attempts: " + err.Error()
+			return s.setStatusWithContent(ctx, current, "awaiting_user_review", current.Meeting.Cycle,
+				current.Meeting.CurrentRound, question, current.Meeting.ResultDigest, current.Meeting.ResultContentID)
+		}
+		recorder.SessionID = result.RunnerResult.SessionID
+		prompt = recorderReviewCorrectionPrompt(prompt, err.Error())
+	}
+	panic("unreachable Recorder review attempt count")
+}
+
+func validateRecorderReview(snapshot store.MeetingSnapshot, output recorderReviewOutput) error {
+	if requiresSwarmReview(snapshot) && output.Action != "reconvene" {
+		return fmt.Errorf("a rejected boundary or invariant requires reconvene, got %s", output.Action)
+	}
+	switch output.Action {
+	case "answer":
+		if strings.TrimSpace(output.Response) == "" {
+			return fmt.Errorf("Recorder answer must contain a response")
+		}
+	case "patch":
+		converted := recorderOutput{Synthesis: output.Synthesis}
+		for _, candidate := range output.Candidates {
+			converted.Candidates = append(converted.Candidates, struct {
+				Kind       string   `json:"kind"`
+				Statement  string   `json:"statement"`
+				Rationale  string   `json:"rationale"`
+				SourceRefs []string `json:"source_refs"`
+			}{Kind: candidate.Kind, Statement: candidate.Statement, Rationale: candidate.Rationale,
+				SourceRefs: candidate.SourceRefs})
+		}
+		if err := validateRecorderResult(converted, snapshot.Contents); err != nil {
+			return err
+		}
+	case "reconvene":
+		if strings.TrimSpace(output.Opening) == "" {
+			return fmt.Errorf("Recorder reconvene decision must contain an opening")
+		}
+	default:
+		return fmt.Errorf("Recorder returned invalid action %q", output.Action)
+	}
+	return nil
+}
+
+func requiresSwarmReview(snapshot store.MeetingSnapshot) bool {
+	for _, candidate := range snapshot.Candidates {
+		if !contains(candidate.SourceRefs, snapshot.Meeting.ResultContentID) || candidate.DesignDisposition != "rejected" {
+			continue
+		}
+		if candidate.Kind == "boundary" || candidate.Kind == "invariant" {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) applyRecorderReview(ctx context.Context, snapshot store.MeetingSnapshot,
+	recorder store.MeetingParticipant, result runResult, output recorderReviewOutput) error {
+	// Persist one validated Recorder decision and its observable state transition.
+	switch output.Action {
+	case "answer":
+		if err := s.persistRunResult(ctx, snapshot.Meeting.ID, recorder, "recorder_review", result, "recorder_answer", []string{snapshot.Meeting.ResultContentID}); err != nil {
+			return err
+		}
+		current, err := s.store.InspectMeeting(ctx, snapshot.Meeting.ID)
+		if err != nil {
+			return err
+		}
+		return s.setStatusWithContent(ctx, current, "awaiting_user_review", current.Meeting.Cycle,
+			current.Meeting.CurrentRound, "", current.Meeting.ResultDigest, current.Meeting.ResultContentID)
+	case "patch":
+		converted := recorderOutput{Synthesis: output.Synthesis}
+		for _, candidate := range output.Candidates {
+			converted.Candidates = append(converted.Candidates, struct {
+				Kind       string   `json:"kind"`
+				Statement  string   `json:"statement"`
+				Rationale  string   `json:"rationale"`
+				SourceRefs []string `json:"source_refs"`
+			}{Kind: candidate.Kind, Statement: candidate.Statement, Rationale: candidate.Rationale,
+				SourceRefs: candidate.SourceRefs})
+		}
+		if err := s.persistRunResult(ctx, snapshot.Meeting.ID, recorder, "recorder_review", result,
+			"meeting_result", []string{snapshot.Meeting.ResultContentID}); err != nil {
+			return err
+		}
+		current, err := s.store.InspectMeeting(ctx, snapshot.Meeting.ID)
+		if err != nil {
+			return err
+		}
+		content, err := contentByDigest(current, result.OutputRecord.Digest, "meeting_result")
+		if err != nil {
+			return err
+		}
+		return s.persistResultCandidates(ctx, current, content, result.OutputRecord.Digest, converted.Candidates)
+	case "reconvene":
+		if err := s.persistRunResult(ctx, snapshot.Meeting.ID, recorder, "recorder_review", result,
+			"recorder_opening", []string{snapshot.Meeting.ResultContentID}); err != nil {
+			return err
+		}
+		current, err := s.store.InspectMeeting(ctx, snapshot.Meeting.ID)
+		if err != nil {
+			return err
+		}
+		if err := s.setStatusWithContent(ctx, current, "reconvening", current.Meeting.Cycle+1,
+			0, "", current.Meeting.ResultDigest, current.Meeting.ResultContentID); err != nil {
+			return err
+		}
+		s.enqueue(snapshot.Meeting.ID)
+		return nil
+	}
+	panic("validated Recorder action became invalid")
+}
+
+func validateRecorderResult(output recorderOutput, contents []store.MeetingContent) error {
+	if strings.TrimSpace(output.Synthesis) == "" || len(output.Candidates) == 0 {
+		return fmt.Errorf("Recorder must produce a complete synthesis and at least one Candidate")
+	}
+	for _, candidate := range output.Candidates {
+		if strings.TrimSpace(candidate.Statement) == "" || len(candidate.SourceRefs) == 0 {
+			return fmt.Errorf("Recorder Candidate must have a statement and source refs")
+		}
+		for _, reference := range candidate.SourceRefs {
+			if !contentExists(contents, reference) {
+				return fmt.Errorf("Recorder Candidate references unknown Meeting content %s", reference)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Service) persistResultCandidates(ctx context.Context, snapshot store.MeetingSnapshot,
+	resultContent store.MeetingContent, resultDigest string, candidates []struct {
+		Kind       string   `json:"kind"`
+		Statement  string   `json:"statement"`
+		Rationale  string   `json:"rationale"`
+		SourceRefs []string `json:"source_refs"`
+	}) error {
+	// Atomically publish the new immutable Result pointer and its review items.
+	now := time.Now().UTC()
+	correlationID, err := event.NewID()
+	if err != nil {
+		return err
+	}
+	events := make([]event.Envelope, 0, len(candidates)+1)
+	for _, candidate := range candidates {
+		id, err := event.NewID()
+		if err != nil {
+			return err
+		}
+		item, err := event.NewEnvelope(snapshot.Meeting.ProjectID, "semantic_candidate", id,
+			event.SemanticCandidateAdded, "recorder", correlationID, event.SemanticCandidateAddedPayload{
+				MeetingID: snapshot.Meeting.ID, CandidateID: id, Kind: candidate.Kind,
+				Statement: candidate.Statement, SourceRefs: []string{resultContent.ID}, Status: "proposed",
+				Rationale: candidate.Rationale, CreatedAt: now.Format(time.RFC3339Nano)}, now)
+		if err != nil {
+			return err
+		}
+		events = append(events, item)
+	}
+	status, err := statusEventWithContent(snapshot.Meeting.ProjectID, snapshot.Meeting.ID,
+		"awaiting_user_review", snapshot.Meeting.Cycle, snapshot.Meeting.CurrentRound, "",
+		resultDigest, resultContent.ID, "recorder", correlationID, now)
+	if err != nil {
+		return err
+	}
+	events = append(events, status)
+	return s.append(ctx, snapshot.Meeting.ProjectID, snapshot.StreamVersion, snapshot.Meeting.ID, events)
+}
+
 func (s *Service) record(ctx context.Context, snapshot store.MeetingSnapshot) error {
 	recorder, err := participantByRole(snapshot, "recorder")
 	if err != nil {
@@ -604,42 +1147,12 @@ func (s *Service) record(ctx context.Context, snapshot store.MeetingSnapshot) er
 	if err != nil {
 		return err
 	}
-	result, err := s.execute(ctx, snapshot, recorder, "recording", recorderPrompt(snapshot.Meeting, materials))
+	result, output, err := executeStructured(ctx, s, snapshot, recorder, "recording",
+		recorderPrompt(snapshot.Meeting, materials), "decode Recorder output", func(output recorderOutput) error {
+			return validateRecorderResult(output, snapshot.Contents)
+		})
 	if err != nil {
 		return err
-	}
-	var output recorderOutput
-	if err := decodeStructured(result.RunnerResult.Output, &output); err != nil {
-		protocolErr := fmt.Errorf("decode Recorder output: %w", err)
-		if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recording", result, protocolErr); err != nil {
-			return err
-		}
-		return protocolErr
-	}
-	if strings.TrimSpace(output.Synthesis) == "" || len(output.Candidates) == 0 {
-		protocolErr := fmt.Errorf("Recorder must produce a synthesis and at least one Candidate")
-		if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recording", result, protocolErr); err != nil {
-			return err
-		}
-		return protocolErr
-	}
-	for _, candidate := range output.Candidates {
-		if strings.TrimSpace(candidate.Statement) == "" || len(candidate.SourceRefs) == 0 {
-			protocolErr := fmt.Errorf("Recorder Candidate must have a statement and source refs")
-			if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recording", result, protocolErr); err != nil {
-				return err
-			}
-			return protocolErr
-		}
-		for _, reference := range candidate.SourceRefs {
-			if !contentExists(snapshot.Contents, reference) {
-				protocolErr := fmt.Errorf("Recorder Candidate references unknown Meeting content %s", reference)
-				if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, recorder, "recording", result, protocolErr); err != nil {
-					return err
-				}
-				return protocolErr
-			}
-		}
 	}
 	if err := s.persistRunResult(ctx, snapshot.Meeting.ID, recorder, "recording", result, "synthesis", nil); err != nil {
 		return err
@@ -694,24 +1207,15 @@ func (s *Service) verify(ctx context.Context, snapshot store.MeetingSnapshot) er
 	if err != nil {
 		return err
 	}
-	result, err := s.execute(ctx, snapshot, verifier, "verifying", verifierPrompt(snapshot.Meeting, materials))
+	result, output, err := executeStructured(ctx, s, snapshot, verifier, "verifying",
+		verifierPrompt(snapshot.Meeting, materials), "decode Verifier output", func(output verifierOutput) error {
+			if !output.Clear && len(output.BlockingFindings) == 0 {
+				return fmt.Errorf("Verifier must provide blocking findings when clear is false")
+			}
+			return nil
+		})
 	if err != nil {
 		return err
-	}
-	var output verifierOutput
-	if err := decodeStructured(result.RunnerResult.Output, &output); err != nil {
-		protocolErr := fmt.Errorf("decode Verifier output: %w", err)
-		if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, verifier, "verifying", result, protocolErr); err != nil {
-			return err
-		}
-		return protocolErr
-	}
-	if !output.Clear && len(output.BlockingFindings) == 0 {
-		protocolErr := fmt.Errorf("Verifier must provide blocking findings when clear is false")
-		if err := s.persistRunFailure(ctx, snapshot.Meeting.ID, verifier, "verifying", result, protocolErr); err != nil {
-			return err
-		}
-		return protocolErr
 	}
 	if err := s.persistRunResult(ctx, snapshot.Meeting.ID, verifier, "verifying", result, "verification", nil); err != nil {
 		return err
@@ -763,6 +1267,56 @@ type runResult struct {
 	Error        string
 }
 
+// executeStructured performs one bounded correction and returns canonical JSON.
+func executeStructured[T any](ctx context.Context, service *Service, snapshot store.MeetingSnapshot,
+	participant store.MeetingParticipant, phase, prompt, label string, validate func(T) error) (runResult, T, error) {
+	var zero T
+	for attempt := 1; attempt <= 2; attempt++ {
+		// 1. Execute against the participant's persisted Provider Session.
+		result, err := service.execute(ctx, snapshot, participant, phase, prompt)
+		if err != nil {
+			return result, zero, err
+		}
+
+		// 2. Decode and validate at the Provider trust boundary.
+		var output T
+		protocolErr := decodeStructured(result.RunnerResult.Output, &output)
+		if protocolErr == nil {
+			protocolErr = validate(output)
+		}
+		if protocolErr == nil {
+			result, err = service.normalizeStructuredResult(result, output)
+			return result, output, err
+		}
+		protocolErr = fmt.Errorf("%s: %w", label, protocolErr)
+		if err := service.persistRunFailure(ctx, snapshot.Meeting.ID, participant, phase, result, protocolErr); err != nil {
+			return result, zero, err
+		}
+		if attempt == 2 {
+			return result, zero, protocolErr
+		}
+
+		// 3. Resume the same Session once with the concrete protocol violation.
+		participant.SessionID = result.RunnerResult.SessionID
+		prompt = structuredCorrectionPrompt(prompt, protocolErr.Error())
+	}
+	panic("unreachable structured Provider attempt count")
+}
+
+func (s *Service) normalizeStructuredResult(result runResult, output any) (runResult, error) {
+	data, err := json.Marshal(output)
+	if err != nil {
+		return runResult{}, fmt.Errorf("encode canonical Provider output: %w", err)
+	}
+	record, err := s.artifacts.Put(data, "application/json")
+	if err != nil {
+		return runResult{}, err
+	}
+	result.RunnerResult.Output = string(data)
+	result.OutputRecord = record
+	return result, nil
+}
+
 func (s *Service) execute(ctx context.Context, snapshot store.MeetingSnapshot, participant store.MeetingParticipant, phase, prompt string) (runResult, error) {
 	inputRecord, err := s.artifacts.Put([]byte(prompt), "text/plain;charset=utf-8")
 	if err != nil {
@@ -808,7 +1362,8 @@ func (s *Service) execute(ctx context.Context, snapshot store.MeetingSnapshot, p
 		return err
 	}
 	result, runErr := s.runners.Execute(runCtx, runner.Request{Provider: participant.Provider,
-		Model: participant.Model, Prompt: prompt, Workdir: participant.Workdir,
+		Model: participant.Model, Options: participant.ProviderOptions,
+		Prompt: prompt, Workdir: participant.Workdir,
 		OutputDir: filepath.Join(filepath.Dir(filepath.Dir(participant.Workdir)), "output"),
 		SessionID: participant.SessionID, Timeout: defaultRunTimeout, PinSession: pinSession}, func(delta runner.Delta) {
 		if s.publisher != nil {
@@ -1014,7 +1569,7 @@ func (s *Service) meetingMaterials(snapshot store.MeetingSnapshot) (string, erro
 		ParticipantID string `json:"participant_id,omitempty"`
 		Content       string `json:"content"`
 	}
-	var materials []material
+	materials := make([]material, 0, len(snapshot.Contents))
 	for _, content := range snapshot.Contents {
 		data, err := s.artifacts.Read(content.ContentDigest)
 		if err != nil {
@@ -1023,7 +1578,14 @@ func (s *Service) meetingMaterials(snapshot store.MeetingSnapshot) (string, erro
 		materials = append(materials, material{ID: content.ID, Kind: content.Kind,
 			ParticipantID: content.ParticipantID, Content: string(data)})
 	}
-	data, err := json.Marshal(materials)
+	document := struct {
+		OriginalQuestion string                    `json:"original_question"`
+		ResultContentID  string                    `json:"result_content_id,omitempty"`
+		Contents         []material                `json:"contents"`
+		Candidates       []store.SemanticCandidate `json:"candidate_reviews"`
+	}{OriginalQuestion: snapshot.Meeting.Brief, ResultContentID: snapshot.Meeting.ResultContentID,
+		Contents: materials, Candidates: snapshot.Candidates}
+	data, err := json.Marshal(document)
 	if err != nil {
 		return "", fmt.Errorf("encode Meeting materials: %w", err)
 	}
@@ -1049,13 +1611,19 @@ func (s *Service) setConflict(ctx context.Context, snapshot store.MeetingSnapsho
 }
 
 func (s *Service) setStatus(ctx context.Context, snapshot store.MeetingSnapshot, status string, round int, question, resultDigest string) error {
+	return s.setStatusWithContent(ctx, snapshot, status, snapshot.Meeting.Cycle,
+		round, question, resultDigest, "")
+}
+
+func (s *Service) setStatusWithContent(ctx context.Context, snapshot store.MeetingSnapshot,
+	status string, cycle, round int, question, resultDigest, resultContentID string) error {
 	correlationID, err := event.NewID()
 	if err != nil {
 		return err
 	}
 	now := time.Now().UTC()
-	item, err := statusEvent(snapshot.Meeting.ProjectID, snapshot.Meeting.ID, status,
-		snapshot.Meeting.Cycle, round, question, resultDigest, "facilitator", correlationID, now)
+	item, err := statusEventWithContent(snapshot.Meeting.ProjectID, snapshot.Meeting.ID, status,
+		cycle, round, question, resultDigest, resultContentID, "facilitator", correlationID, now)
 	if err != nil {
 		return err
 	}
@@ -1109,10 +1677,47 @@ func (s *Service) enqueue(meetingID string) {
 }
 
 type participantDefinition struct {
-	Seat     string
-	Role     string
-	Provider string
-	Model    string
+	Seat            string
+	Role            string
+	Provider        string
+	Model           string
+	ProviderOptions map[string]string
+}
+
+func validateParticipants(participants []ParticipantInput) error {
+	seats := make(map[string]bool, len(participants))
+	recorders := 0
+	for index, participant := range participants {
+		participant.Seat = strings.TrimSpace(participant.Seat)
+		participant.Model = strings.TrimSpace(participant.Model)
+		if participant.Seat == "" || seats[participant.Seat] {
+			return newError("invalid_argument", fmt.Sprintf("participant %d must have a unique seat", index))
+		}
+		seats[participant.Seat] = true
+		if participant.Role != "designer" && participant.Role != "recorder" {
+			return newError("invalid_argument", "protocol v2 participants must be designer or recorder")
+		}
+		if participant.Role == "recorder" {
+			recorders++
+		}
+		if participant.Provider != "codex" && participant.Provider != "opencode" {
+			return newError("invalid_argument", fmt.Sprintf("unsupported Provider %q", participant.Provider))
+		}
+		if participant.Model == "" {
+			return newError("invalid_argument", fmt.Sprintf("participant %s requires an explicit model", participant.Seat))
+		}
+		for key, value := range participant.ProviderOptions {
+			if strings.TrimSpace(value) == "" ||
+				(participant.Provider == "codex" && key != "reasoning_effort") ||
+				(participant.Provider == "opencode" && key != "variant") {
+				return newError("invalid_argument", fmt.Sprintf("unsupported option %q for %s", key, participant.Provider))
+			}
+		}
+	}
+	if recorders != 1 {
+		return newError("invalid_argument", "protocol v2 requires exactly one Recorder")
+	}
+	return nil
 }
 
 func participantDefinitions(overrides map[string]string) []participantDefinition {
@@ -1151,10 +1756,16 @@ func artifactRef(record artifact.Record, relation string) event.ArtifactRef {
 }
 
 func statusEvent(projectID, meetingID, status string, cycle, round int, question, resultDigest, actor, correlationID string, now time.Time) (event.Envelope, error) {
+	return statusEventWithContent(projectID, meetingID, status, cycle, round, question,
+		resultDigest, "", actor, correlationID, now)
+}
+
+func statusEventWithContent(projectID, meetingID, status string, cycle, round int, question,
+	resultDigest, resultContentID, actor, correlationID string, now time.Time) (event.Envelope, error) {
 	return event.NewEnvelope(projectID, "meeting", meetingID, event.MeetingStatusSet,
 		actor, correlationID, event.MeetingStatusSetPayload{MeetingID: meetingID,
 			Status: status, Cycle: cycle, CurrentRound: round,
-			HumanQuestion: question, ResultDigest: resultDigest,
+			HumanQuestion: question, ResultDigest: resultDigest, ResultContentID: resultContentID,
 			UpdatedAt: now.Format(time.RFC3339Nano)}, now)
 }
 
@@ -1187,6 +1798,37 @@ func contentExists(contents []store.MeetingContent, contentID string) bool {
 		}
 	}
 	return false
+}
+
+func contentByDigest(snapshot store.MeetingSnapshot, digest, kind string) (store.MeetingContent, error) {
+	for index := len(snapshot.Contents) - 1; index >= 0; index-- {
+		content := snapshot.Contents[index]
+		if content.ContentDigest == digest && content.Kind == kind {
+			return content, nil
+		}
+	}
+	return store.MeetingContent{}, fmt.Errorf("Meeting %s has no %s content for digest %s",
+		snapshot.Meeting.ID, kind, digest)
+}
+
+func hasCycleContent(snapshot store.MeetingSnapshot, participantID, kind string) bool {
+	for _, content := range snapshot.Contents {
+		if content.ParticipantID == participantID && content.Kind == kind &&
+			content.Cycle == snapshot.Meeting.Cycle {
+			return true
+		}
+	}
+	return false
+}
+
+func designParticipantCount(snapshot store.MeetingSnapshot) int {
+	count := 0
+	for _, participant := range snapshot.Participants {
+		if isDesignRole(participant.Role) {
+			count++
+		}
+	}
+	return count
 }
 
 func decodeStructured(output string, target any) error {

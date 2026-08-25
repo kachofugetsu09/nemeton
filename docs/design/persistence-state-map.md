@@ -1,19 +1,19 @@
 # Nemeton 持久化状态地图
 
-> 文档状态：Accepted design；Milestone 0 current implementation
+> 文档状态：Accepted design；Milestone 0/1 current implementation
 >
-> 核对日期：2026-07-19
+> 核对日期：2026-07-20
 
-当前仓库已经实现数据库、artifact store 和 Project/Reality projection；其他领域状态仍是后续设计。本地图描述
-Accepted decisions 0003、0004 及现有产品语义要求实现保持的状态边界；运行路径
-已经由 Human 确认。
+当前仓库已经实现数据库、artifact store、Project/Reality、Meeting、Result revision、review disposition、
+Approved Context 和 Handoff projection；Campaign、Task、产品 Gate 和 Trust State 仍是后续设计。本地图描述
+Accepted decisions 0003、0004、0010 要求实现保持的状态边界。
 
 ## 1. Domain event stream
 
 | 字段 | 语义 |
 | --- | --- |
 | 名称与位置 | 应用数据目录的 `nemeton.db` 中的 `project_streams`、`domain_events` 和 `event_artifacts` |
-| 角色 | Project、Reality、Meeting、Semantic Item、Campaign、Task Contract、Gate 与 Evidence 的长期权威事实 |
+| 角色 | Project、Reality、Meeting/Cycle、Result revision、Review、Approved Context、Semantic Item、Campaign、Task Contract、Gate 与 Evidence 的长期权威事实 |
 | Owner | `nemetond` 领域服务和事件存储；其他进程只能通过 command/API 提交 |
 | 增加 | 通过校验的领域 command 在短事务中按 project sequence 追加事件 |
 | 更新 | 已记录事件正文和顺序不允许原位修改；schema 演化通过版本和迁移处理 |
@@ -28,7 +28,7 @@ Accepted decisions 0003、0004 及现有产品语义要求实现保持的状态�
 | 字段 | 语义 |
 | --- | --- |
 | 名称与位置 | 应用数据目录中的 `artifacts/sha256/` |
-| 角色 | 保存会议正文、日志、补丁、测试报告、Evidence 和已激活语义内容 |
+| 角色 | 保存会议正文、Recorder opening/answer、不可变 Result revision、日志、补丁、测试报告、Evidence 和已激活语义内容 |
 | Owner | artifact 模块；事件和领域对象只保存 digest、媒体类型、大小与稳定引用 |
 | 增加 | 写入完整内容、计算 digest、校验落盘后登记引用；相同 digest 可复用同一内容 |
 | 更新 | 内容寻址对象不可原位修改；内容变化产生新 digest |
@@ -42,8 +42,8 @@ Accepted decisions 0003、0004 及现有产品语义要求实现保持的状态�
 
 | 字段 | 语义 |
 | --- | --- |
-| 名称与位置 | `projects`、binding、reality、meeting、semantic、campaign、task、gate、trust 等关系表 |
-| 角色 | 当前查询视图和运行协调状态；不是长期语义的第二事实源 |
+| 名称与位置 | `projects`、binding、reality、meeting、participant/run/content/conflict/review、semantic、campaign、task、gate、trust 等关系表 |
+| 角色 | 当前查询视图和运行协调状态，包括当前 Result pointer、逐项处置与 Approved Context；不是长期语义的第二事实源 |
 | Owner | `nemetond` 的 reducer、领域服务和 projection 模块 |
 | 增加 | 事件事务内创建或扩展当前行；索引随 schema migration 建立 |
 | 更新 | reducer 按事件推进 current state、sequence、digest 和 dirty 状态；业务服务维护需要当前现场的协调字段 |
@@ -101,6 +101,7 @@ Accepted decisions 0003、0004 及现有产品语义要求实现保持的状态�
 ## 7. 共同恢复不变量
 
 - replay 只运行确定性 reducer，不执行 Git 写命令、模型调用、外部 API、PR、部署或 Gate command。
+- Result revision 和 Approved Context 只能由新事件推进；旧 Result、用户处置和 rejected item 不原位改写。
 - artifact 缺失、digest 不符或未知事件版本必须使相关恢复明确失败。
 - “可重建”不改变删除授权；恢复输入也必须被备份和校验。
 - 数据库事件、artifact、Git objects 和外部现场分别恢复，不能用其中一种伪装其他种类已经恢复。

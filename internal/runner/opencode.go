@@ -17,6 +17,9 @@ func (OpenCode) Execute(ctx context.Context, request Request, emit func(Delta)) 
 	if request.Model != "" {
 		args = append(args, "--model", request.Model)
 	}
+	if variant := request.Options["variant"]; variant != "" {
+		args = append(args, "--variant", variant)
+	}
 	if request.SessionID != "" {
 		args = append(args, "--session", request.SessionID)
 	}
@@ -27,6 +30,8 @@ func (OpenCode) Execute(ctx context.Context, request Request, emit func(Delta)) 
 	var output strings.Builder
 	var protocolError string
 	openStep := false
+	stepHasContinuationTool := false
+	awaitingContinuation := false
 	process, runErr := runStreamed(ctx, "opencode", args, []string{
 		"PWD=" + request.Workdir,
 		`OPENCODE_CONFIG_CONTENT={"permission":"allow"}`,
@@ -34,6 +39,9 @@ func (OpenCode) Execute(ctx context.Context, request Request, emit func(Delta)) 
 		value := decodeLine(line)
 		if value == nil {
 			emit(Delta{Provider: "opencode", Type: "raw", Content: string(line)})
+			if protocolError == "" {
+				protocolError = "invalid OpenCode NDJSON event"
+			}
 			return
 		}
 		if id := stringField(value, "sessionID"); id != "" && sessionID == "" {
@@ -49,12 +57,25 @@ func (OpenCode) Execute(ctx context.Context, request Request, emit func(Delta)) 
 		switch typeName {
 		case "step_start":
 			openStep = true
+			stepHasContinuationTool = false
+			awaitingContinuation = false
 		case "step_finish":
 			openStep = false
+			reason := stringField(part, "reason")
+			awaitingContinuation = reason == "tool-calls" || (reason != "" && stepHasContinuationTool)
+			stepHasContinuationTool = false
+		case "tool_use":
+			metadata := nestedMap(part, "metadata")
+			providerExecuted, _ := metadata["providerExecuted"].(bool)
+			if !providerExecuted {
+				stepHasContinuationTool = true
+			}
 		case "text":
 			output.WriteString(stringField(part, "text"))
 		case "error":
-			protocolError = string(line)
+			if protocolError == "" {
+				protocolError = string(line)
+			}
 		}
 		emit(Delta{Provider: "opencode", Type: typeName, Content: string(line)})
 	})
@@ -73,6 +94,9 @@ func (OpenCode) Execute(ctx context.Context, request Request, emit func(Delta)) 
 	}
 	if openStep {
 		return result, fmt.Errorf("OpenCode %s stream ended with an open step", version)
+	}
+	if awaitingContinuation {
+		return result, fmt.Errorf("OpenCode %s stream ended before the required continuation step", version)
 	}
 	if result.Output == "" {
 		return result, fmt.Errorf("OpenCode %s returned empty final output", version)

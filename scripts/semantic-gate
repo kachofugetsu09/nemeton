@@ -4,7 +4,7 @@ set -euo pipefail
 repo_root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 cd "$repo_root"
 
-unformatted=$(find cmd internal migrations -name '*.go' -type f -exec gofmt -l {} +)
+unformatted=$(find cmd internal migrations webui -name '*.go' -type f -exec gofmt -l {} +)
 if [[ -n "$unformatted" ]]; then
   echo "gofmt required:" >&2
   echo "$unformatted" >&2
@@ -15,6 +15,10 @@ git diff --check
 git diff --cached --check
 empty_tree=$(git hash-object -t tree /dev/null)
 git diff --check "$empty_tree" HEAD
+pnpm --dir webui install --frozen-lockfile
+pnpm --dir webui lint
+pnpm --dir webui build
+pnpm --dir webui test:e2e
 go vet ./...
 go test -count=1 -race ./...
 go build ./cmd/nemeton ./cmd/nemetond

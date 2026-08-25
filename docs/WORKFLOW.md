@@ -4,9 +4,9 @@
 
 ## 0. 当前仓库能力边界
 
-当前仓库已经实现 Milestone 0 基线以及 Milestone 1 的持久化 Swarm Meeting 后端：Reality Bundle、每席位隔离 Workdir、Codex/OpenCode Runner、三轮有界收敛、Recorder、Verifier、Candidate disposition、数据库 Current State、HTTP/WebSocket、CLI、replay 与恢复。唯一仓库级验证入口是 `scripts/semantic-gate`；GitHub 上稳定的 required check 名称是 `semantic-gate`。
+当前仓库已经实现 Milestone 0 基线、Milestone 1A 持久化 Meeting 后端和 Milestone 1B 审阅闭环：Reality Bundle、每席位隔离 Workdir、Codex/OpenCode Runner、protocol v1 兼容、protocol v2 动态 Swarm、单 Recorder、多 Cycle Result review、Approved Context、Handoff、HTTP/WebSocket、CLI、Local Web UI、replay 与恢复。唯一仓库级验证入口是 `scripts/semantic-gate`；GitHub 上稳定的 required check 名称是 `semantic-gate`。
 
-仓库级 Gate 保护 Milestone 0 与 Milestone 1 已实现的原子事务和跨组件联合语义，不等于本文后半部分 Accepted 产品设计中的 Contract、Task、Integration 或 Release Gate 引擎。当前仓库仍没有 Docker、Campaign、Task 执行、产品 Gate 引擎或 Web UI。数据库 Current State 是产品投影；`docs/NOW.md` 仍是人工维护的仓库工作手册。
+仓库级 Gate 保护 Milestone 0 与 Milestone 1 已实现的原子事务和跨组件联合语义，不等于本文后半部分 Accepted 产品设计中的 Contract、Task、Integration 或 Release Gate 引擎。当前仓库仍没有 Campaign、Task 执行或产品 Gate 引擎，也没有 Docker。数据库 Current State 是产品投影；`docs/NOW.md` 仍是人工维护的仓库工作手册。
 
 在 Nemeton 能自举管理自身以前，仓库变更通过 Babel 工作流执行；不能用未来产品能力伪装当前验证已经完成。
 
@@ -38,7 +38,7 @@ Read → Ownership → Isolate → Contract → Implement → Verify → Review 
 
 ### A.6 Verify
 
-运行与改动直接相关、当前仓库真实存在的最小验证。Milestone 0/1 的完整验证统一运行 `scripts/semantic-gate`，它检查格式、diff、vet、race 测试和两个命令入口的构建。记录命令、target SHA 或 diff、退出状态和未验证项；不能发明命令。
+运行与改动直接相关、当前仓库真实存在的最小验证。Milestone 0/1 的完整验证统一运行 `scripts/semantic-gate`，它检查格式、diff、前端 lint/build/Playwright、vet、race 测试和两个命令入口的构建。记录命令、target SHA 或 diff、退出状态和未验证项；不能发明命令。真实 Provider 套件只用于交付或客户端协议变化，不进入每次 CI。
 
 ### A.7 Review
 
@@ -84,13 +84,14 @@ Governance change
 以下情况需要启动完整 Swarm Meeting：问题模型不清晰、存在架构取舍，或者变更影响多个边界。
 
 1. 固定 Reality Revision、问题和硬约束。
-2. 默认三个 Design Agent 密封并行提交完整方案。
-3. 同时 Reveal，按 Claim、Evidence 和 Conflict 展开讨论。
-4. Recorder 生成 Synthesis Draft。
-5. Verifier 检查证据、约束、组合一致性和验收义务。
-6. Design Agent 逐项 Ratification。
-7. 确定性 Convergence Gate 生成 Meeting Result。
-8. 人类选择、修改、要求补证据或重新讨论。
+2. 默认三个 Design Agent 密封并行提交完整方案；用户可配置 `0..N` 席位与 Provider 模型。
+3. 同时 Reveal，按 Claim、Evidence 和 Conflict 展开有界讨论。
+4. 单 Recorder 生成完整 Meeting Result 与可独立处置的 Candidate。
+5. 人类逐项决定设计接受与未来上下文，并可补充自然语言。
+6. Recorder 自主回答、追加完整 Result revision，或使用原阵容开启下一 Cycle。
+7. 人类批准完整 Result 后生成 Coding Design Handoff；本阶段不写目标仓库。
+
+protocol v1 的 Verifier、Ratification 和历史事件继续可 replay，但不属于新建 protocol v2 Meeting。
 
 已有明确合同的低风险任务可以跳过完整会议，进入任务编译。
 

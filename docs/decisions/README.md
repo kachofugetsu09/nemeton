@@ -14,7 +14,8 @@ Accepted decision 记录已经由用户确认、会约束未来实现的决定�
 | [`0006`](0006-go-modular-monolith.md) | v1 使用 Go 模块化单体和系统 Git | Accepted | 2026-07-19 |
 | [`0007`](0007-project-workbook-is-shared-reality.md) | 项目工作手册是 Agent 协作的共享现实 | Accepted；能力边界由 0008 修订 | 2026-07-19 |
 | [`0008`](0008-semantic-ci-gate.md) | 原子语义与跨组件联合语义由 CI Hard Gate 保护 | Accepted；Amends 0007 | 2026-07-19 |
-| [`0009`](0009-milestone-1-meeting-runtime.md) | Meeting 使用持久化 Coding Agent Workdir 与 WebSocket | Accepted；Amends 0003、0004、0006 | 2026-07-19 |
+| [`0009`](0009-milestone-1-meeting-runtime.md) | Meeting 使用持久化 Coding Agent Workdir 与 WebSocket | Accepted；部分流程由 0010 修订 | 2026-07-19 |
+| [`0010`](0010-protocol-v2-recorder-review-loop.md) | Protocol v2 使用单 Recorder 驱动可迭代的人类审阅闭环 | Accepted；Amends 0009 的当前会议流程 | 2026-07-20 |
 
 ## 记录规则
 

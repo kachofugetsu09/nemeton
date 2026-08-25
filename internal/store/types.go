@@ -55,35 +55,39 @@ type AppendRequest struct {
 }
 
 type Meeting struct {
-	ID                  string `json:"id"`
-	ProjectID           string `json:"project_id"`
-	RealityID           string `json:"reality_id"`
-	Kind                string `json:"kind"`
-	Title               string `json:"title"`
-	Brief               string `json:"brief"`
-	Status              string `json:"status"`
-	MaxRounds           int    `json:"max_rounds"`
-	Cycle               int    `json:"cycle"`
-	CurrentRound        int    `json:"current_round"`
-	RealityBundleDigest string `json:"reality_bundle_digest"`
-	HumanQuestion       string `json:"human_question,omitempty"`
-	ResultDigest        string `json:"result_digest"`
-	CreatedAt           string `json:"created_at"`
-	UpdatedAt           string `json:"updated_at"`
+	ID                   string `json:"id"`
+	ProjectID            string `json:"project_id"`
+	RealityID            string `json:"reality_id"`
+	Kind                 string `json:"kind"`
+	Title                string `json:"title"`
+	Brief                string `json:"brief"`
+	Status               string `json:"status"`
+	MaxRounds            int    `json:"max_rounds"`
+	Cycle                int    `json:"cycle"`
+	CurrentRound         int    `json:"current_round"`
+	RealityBundleDigest  string `json:"reality_bundle_digest"`
+	HumanQuestion        string `json:"human_question,omitempty"`
+	ResultDigest         string `json:"result_digest"`
+	ResultContentID      string `json:"result_content_id,omitempty"`
+	ApprovedResultDigest string `json:"approved_result_digest,omitempty"`
+	ProtocolVersion      int    `json:"protocol_version"`
+	CreatedAt            string `json:"created_at"`
+	UpdatedAt            string `json:"updated_at"`
 }
 
 type MeetingParticipant struct {
-	ID             string `json:"id"`
-	MeetingID      string `json:"meeting_id"`
-	Seat           string `json:"seat"`
-	Role           string `json:"role"`
-	Provider       string `json:"provider"`
-	Model          string `json:"model,omitempty"`
-	Status         string `json:"status"`
-	SessionID      string `json:"session_id,omitempty"`
-	Workdir        string `json:"workdir"`
-	ProposalDigest string `json:"proposal_digest,omitempty"`
-	UpdatedAt      string `json:"updated_at"`
+	ID              string            `json:"id"`
+	MeetingID       string            `json:"meeting_id"`
+	Seat            string            `json:"seat"`
+	Role            string            `json:"role"`
+	Provider        string            `json:"provider"`
+	Model           string            `json:"model,omitempty"`
+	ProviderOptions map[string]string `json:"provider_options,omitempty"`
+	Status          string            `json:"status"`
+	SessionID       string            `json:"session_id,omitempty"`
+	Workdir         string            `json:"workdir"`
+	ProposalDigest  string            `json:"proposal_digest,omitempty"`
+	UpdatedAt       string            `json:"updated_at"`
 }
 
 type AgentRun struct {
@@ -131,15 +135,17 @@ type MeetingConflict struct {
 }
 
 type SemanticCandidate struct {
-	ID         string   `json:"id"`
-	MeetingID  string   `json:"meeting_id"`
-	Kind       string   `json:"kind"`
-	Statement  string   `json:"statement"`
-	SourceRefs []string `json:"source_refs"`
-	Status     string   `json:"status"`
-	Rationale  string   `json:"rationale"`
-	CreatedAt  string   `json:"created_at"`
-	UpdatedAt  string   `json:"updated_at"`
+	ID                 string   `json:"id"`
+	MeetingID          string   `json:"meeting_id"`
+	Kind               string   `json:"kind"`
+	Statement          string   `json:"statement"`
+	SourceRefs         []string `json:"source_refs"`
+	Status             string   `json:"status"`
+	DesignDisposition  string   `json:"design_disposition"`
+	ContextDisposition string   `json:"context_disposition"`
+	Rationale          string   `json:"rationale"`
+	CreatedAt          string   `json:"created_at"`
+	UpdatedAt          string   `json:"updated_at"`
 }
 
 type MeetingSnapshot struct {
@@ -158,6 +164,7 @@ type CurrentState struct {
 	ProjectedThroughSequence int64               `json:"projected_through_sequence"`
 	Meetings                 []Meeting           `json:"meetings"`
 	Candidates               []SemanticCandidate `json:"candidates"`
+	ApprovedContext          []SemanticCandidate `json:"approved_context"`
 	ResultDigest             string              `json:"result_digest"`
 	UpdatedAt                string              `json:"updated_at"`
 }

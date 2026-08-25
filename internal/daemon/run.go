@@ -18,6 +18,7 @@ import (
 	"github.com/kachofugetsu09/nemeton/internal/realtime"
 	"github.com/kachofugetsu09/nemeton/internal/runner"
 	"github.com/kachofugetsu09/nemeton/internal/store"
+	webassets "github.com/kachofugetsu09/nemeton/webui"
 )
 
 func Run(ctx context.Context, configuration config.Config) error {
@@ -51,7 +52,8 @@ func Run(ctx context.Context, configuration config.Config) error {
 	}
 	state := api.NewRuntimeState(reconcile)
 	hub := realtime.NewHub()
-	meetingService := meeting.NewService(database, artifacts, runner.Production(),
+	runners := runner.Production()
+	meetingService := meeting.NewService(database, artifacts, runners,
 		configuration.WorktreesRoot, hub)
 	coordinator := meeting.NewCoordinator(meetingService)
 	meetingService.SetScheduler(coordinator)
@@ -64,7 +66,7 @@ func Run(ctx context.Context, configuration config.Config) error {
 		coordinator.Enqueue(meetingID)
 	}
 
-	// 3. Serve the single Unix Socket until graceful cancellation.
+	// 3. Serve the Unix API and same-origin loopback Web UI over one domain handler.
 	listener, err := net.Listen("unix", configuration.SocketPath)
 	if err != nil {
 		return fmt.Errorf("listen on Unix Socket %s: %w", configuration.SocketPath, err)
@@ -74,14 +76,28 @@ func Run(ctx context.Context, configuration config.Config) error {
 	if err := os.Chmod(configuration.SocketPath, 0o600); err != nil {
 		return fmt.Errorf("set Unix Socket permissions: %w", err)
 	}
+	apiHandler := api.NewServer(projectService, meetingService, runners, hub, state, configuration.DataDir, configuration.WorktreesRoot).Handler()
 	server := &http.Server{
-		Handler:           api.NewServer(projectService, meetingService, hub, state, configuration.DataDir, configuration.WorktreesRoot).Handler(),
+		Handler:           apiHandler,
 		ReadHeaderTimeout: 5 * time.Second,
 		IdleTimeout:       30 * time.Second,
 	}
-	serveResult := make(chan error, 1)
+	webListener, err := listenLoopback(configuration.WebAddress)
+	if err != nil {
+		return fmt.Errorf("listen on Web UI %s: %w", configuration.WebAddress, err)
+	}
+	defer webListener.Close()
+	webHandler, err := api.BrowserHandler(apiHandler, webassets.Assets, webListener.Addr().String())
+	if err != nil {
+		return fmt.Errorf("prepare Web UI: %w", err)
+	}
+	webServer := &http.Server{Handler: webHandler, ReadHeaderTimeout: 5 * time.Second, IdleTimeout: 30 * time.Second}
+	serveResult := make(chan error, 2)
 	go func() {
 		serveResult <- server.Serve(listener)
+	}()
+	go func() {
+		serveResult <- webServer.Serve(webListener)
 	}()
 	select {
 	case err := <-serveResult:
@@ -95,11 +111,28 @@ func Run(ctx context.Context, configuration config.Config) error {
 		if err := server.Shutdown(shutdownContext); err != nil {
 			return fmt.Errorf("shut down nemetond: %w", err)
 		}
-		if err := <-serveResult; err != nil && !errors.Is(err, http.ErrServerClosed) {
-			return fmt.Errorf("finish nemetond API: %w", err)
+		if err := webServer.Shutdown(shutdownContext); err != nil {
+			return fmt.Errorf("shut down Nemeton Web UI: %w", err)
+		}
+		for range 2 {
+			if err := <-serveResult; err != nil && !errors.Is(err, http.ErrServerClosed) {
+				return fmt.Errorf("finish nemetond service: %w", err)
+			}
 		}
 		return nil
 	}
+}
+
+func listenLoopback(address string) (net.Listener, error) {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return nil, fmt.Errorf("invalid Web UI address %q: %w", address, err)
+	}
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return nil, fmt.Errorf("Web UI address must use an explicit loopback IP: %s", address)
+	}
+	return net.Listen("tcp", address)
 }
 
 func prepareSocket(path string) error {
